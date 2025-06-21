@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QMainWindow, QMessageBox
 from login_page.query import (
     auth,
     get_id_operation,
-    get_id_user,
+    get_user_id,
     get_role,
     log_in_session,
 )
@@ -24,7 +24,7 @@ class LoginPage:
         self.central_widget = None
         self.username = None
         self.password = None
-        self.id_user = None
+        self.user_id = None
         self.role = None
         self.id_operation = None
         self.enter_filter = None
@@ -99,11 +99,11 @@ def handle_login(self, ui):
         if password and len(password) >= 8:
             auth_ = auth(username, password)
             if auth_ is True:
-                self.id_user = get_id_user(username)
-                id_user = self.id_user
-                self.role = get_role(id_user)
-                log_in_session(id_user)
-                self.id_operation = get_id_operation(id_user)
+                self.user_id = get_user_id(username)
+                user_id = self.user_id
+                self.role = get_role(user_id)
+                log_in_session(user_id)
+                self.operation_id = get_id_operation(user_id)
                 menu_page(self)
             else:
                 QMessageBox.warning(

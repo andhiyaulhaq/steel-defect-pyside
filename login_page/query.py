@@ -23,52 +23,52 @@ def auth(username, password) :
         else : 
             return False 
         
-def get_id_user(username) :
+def get_user_id(username) :
     with engine.connect() as conn :
         query = text("""
-            select id_user
+            select user_id
             from user_admin
             where username = :username
         """)
         result = conn.execute(
             query, {"username": username}
         ).fetchone()
-    id_user = result[0]
-    return id_user
+    user_id = result[0]
+    return user_id
 
-def get_role(id_user) :
+def get_role(user_id) :
     with engine.connect() as conn :
         query = text("""
             select role
             from user_admin
-            where id_user = :id_user
+            where user_id = :user_id
         """)
         result = conn.execute(
-            query, {"id_user": id_user}
+            query, {"user_id": user_id}
         ).fetchone()
     role = result[0]
     return role
 
-def get_id_operation(id_user) :
+def get_id_operation(user_id) :
     with engine.connect() as conn:
         query = text(
             """
-            SELECT id_operation 
+            SELECT operation_id 
             FROM operation 
-            WHERE id_user = :id 
+            WHERE user_id = :id 
             ORDER BY start_time DESC 
             LIMIT 1
             """
         )
-        result = conn.execute(query, {"id": id_user}).fetchone()
+        result = conn.execute(query, {"id": user_id}).fetchone()
     id_operation = result[0]
     return id_operation 
 
-def log_in_session(id_user) :
+def log_in_session(user_id) :
     with engine.connect() as conn : 
         query = text("""
-            INSERT INTO operation (start_time, id_user)
-            VALUES (NOW(), :id_user)
+            INSERT INTO operation (start_time, user_id)
+            VALUES (NOW(), :user_id)
         """)
-        conn.execute(query, {"id_user": id_user})
+        conn.execute(query, {"user_id": user_id})
         conn.commit()

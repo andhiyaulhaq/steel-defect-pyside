@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .query import auth, get_id_operation, get_id_user, get_role, log_in_session
+from .query import auth, get_id_operation, get_user_id, get_role, log_in_session
 
 
 class EnterEventFilter(QObject):
