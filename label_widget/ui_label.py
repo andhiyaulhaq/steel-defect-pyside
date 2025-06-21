@@ -1,4 +1,4 @@
-from PySide6.QtCore import QCoreApplication, QMetaObject
+from PySide6.QtCore import QCoreApplication, QMetaObject, QRect
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
 )
 
 
@@ -29,7 +28,6 @@ class Ui_AnnotatorWidget(object):
         self.openButton = None
         self.imageLabel = None
         self.coordinatesTable = None
-        self.content_layout = None
 
     @property
     def coordinates_table_y_offset(self):
@@ -49,24 +47,19 @@ class Ui_AnnotatorWidget(object):
     def setupUi(self, annotator_widget):
         if not annotator_widget.objectName():
             annotator_widget.setObjectName("AnnotatorWidget")
+        annotator_widget.resize(800, 600)
         translated_title = QCoreApplication.translate(
-            "AnnotatorWidget", "Image Annotator", None
+            "AnnotatorWidget",
+            "Image Annotator",
+            None
         )
         annotator_widget.setWindowTitle(translated_title)
-
-        # Create content layout only if it doesn't exist
-        if self.content_layout is None:
-            self.content_layout = QVBoxLayout(annotator_widget)
-            self.content_layout.setContentsMargins(20, 20, 20, 20)
-            self.content_layout.setSpacing(10)
 
         # --- Widgets Creation ---
         self._create_widgets(annotator_widget)
 
-        # --- Layout Configuration ---
-        self.content_layout.addWidget(self.openButton)
-        self.content_layout.addWidget(self.imageLabel, 1)
-        self.content_layout.addWidget(self.coordinatesTable)
+        # --- Layout and Geometry Configuration ---
+        self._configure_layout_and_geometry()
 
         # --- Table Specific Configuration ---
         self._configure_coordinates_table()
@@ -90,21 +83,21 @@ class Ui_AnnotatorWidget(object):
         self.coordinatesTable = QTableWidget(annotator_widget)
         self.coordinatesTable.setObjectName("coordinatesTable")
 
+    def _configure_layout_and_geometry(self):
+        """Sets the geometry for each widget."""
+        self.openButton.setGeometry(QRect(20, 20, 100, 30))
+        self.imageLabel.setGeometry(QRect(20, 70, 500, 500))
+        # Note: The table geometry is set to a larger width to better accommodate 7 columns
+        # Increased width for better visibility
+        self.coordinatesTable.setGeometry(QRect(540, 70, self.coordinates_table_width, self.coordinates_table_height))
+
     def _configure_coordinates_table(self):
         """Configures the coordinates table including headers and column widths."""
         self.coordinatesTable.setColumnCount(7)
-        self.coordinatesTable.setRowCount(0)
+        self.coordinatesTable.setRowCount(0) # Start with 0 rows, rows will be added dynamically
 
         # Set horizontal header items
-        header_labels = [
-            "No.",
-            "Box Id",
-            "Class",
-            "x-center",
-            "y-center",
-            "width",
-            "height",
-        ]
+        header_labels = ["No.", "Box Id", "Class", "x-center", "y-center", "width", "height"]
         for i, label in enumerate(header_labels):
             item = QTableWidgetItem()
             self.coordinatesTable.setHorizontalHeaderItem(i, item)
@@ -118,26 +111,19 @@ class Ui_AnnotatorWidget(object):
         self.coordinatesTable.setColumnWidth(5, self.fixed_width_coord)
         self.coordinatesTable.setColumnWidth(6, self.fixed_width_coord)
 
-        self.coordinatesTable.setMinimumWidth(self._coordinates_table_width)
-        self.coordinatesTable.setMaximumWidth(self._coordinates_table_width)
-        size_policy = QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        self.coordinatesTable.setSizePolicy(size_policy)
+        # Make horizontal header interactive and resizable
+        # header = self.coordinatesTable.horizontalHeader()
+        # header.setSectionsMovable(True)
+        # header.setSectionsClickable(True)
+        # header.setStretchLastSection(False)
+        # header.setSectionResizeMode(QHeaderView.Interactive)
 
     def _configure_image_label(self):
         """Configures the image label's scaling and size policy."""
-        # Modify the size policy to maintain aspect ratio
-        self.imageLabel.setScaledContents(
-            False
-        )  # Change to False to prevent stretching
-        size_policy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        size_policy.setHeightForWidth(True)
-        self.imageLabel.setSizePolicy(size_policy)
-        # Set minimum size to prevent collapsing
-        self.imageLabel.setMinimumSize(600, 400)
+        self.imageLabel.setScaledContents(True)
+        self.imageLabel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
 
     def retranslate_ui(self, _annotator_widget):
         """Translates UI text. This function is typically auto-generated."""
         # Widget text is set here, separated from layout configuration
-        self.openButton.setText(
-            QCoreApplication.translate("AnnotatorWidget", "Open Image", None)
-        )
+        self.openButton.setText(QCoreApplication.translate("AnnotatorWidget", "Open Image", None))
