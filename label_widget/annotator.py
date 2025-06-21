@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from dotenv import load_dotenv
 import os
+import ulid
 
 
 class Annotator(QObject):
@@ -53,6 +54,8 @@ class Annotator(QObject):
 
         # Connect UI signals to slots (event handlers)
         self.open_button.clicked.connect(self.open_image)
+        self.save_button = ui.saveButton  # Tambahkan ini
+        self.save_button.clicked.connect(self.save_final_defect)  # Hubungkan tombol
 
         # Internal state variables for image and bounding boxes
         self.cv_image = None  # Stores the original OpenCV image
@@ -80,11 +83,14 @@ class Annotator(QObject):
 
         self.event_handler = AnnotatorEventHandler(self)
         self.box_manager = BoundingBoxManager()  # Initialize the bounding box manager
+        self.box_table_map = []  # <-- Tambahkan ini
 
         # Install event filters to capture mouse and keyboard events on relevant widgets
         self.main_window.installEventFilter(self)
         self.image_label.installEventFilter(self)
         self.coordinates_table.installEventFilter(self)
+
+        self.image_file_path = None  # Tambahkan ini
 
     def eventFilter(self, source, event):
         # return event_filter_impl(self, source, event)
@@ -99,6 +105,7 @@ class Annotator(QObject):
             None, "Open Image", "", "Images (*.png *.jpg *.bmp *.jpeg)"
         )
         if file_path:
+            self.image_file_path = file_path  # Simpan path file di sini
             self.cv_image = cv2.imread(file_path)
             if self.cv_image is None:
                 show_warning_popup(
@@ -142,41 +149,36 @@ class Annotator(QObject):
         load_dotenv()
         DB_URL = os.getenv("DB_URL")
 
-        # Pilih nama tabel berdasarkan path
-        if "/anomaly/" in image_path_db:
-            DB_TABLE = "anomaly"
-        elif "/defect/" in image_path_db:
-            DB_TABLE = "defect"
-        else:
-            DB_TABLE = os.getenv("DB_TABLE", "anomaly")  # fallback default
-
         if not DB_URL:
             print("DB_URL environment variable is missing!")
             return []
 
         boxes = []
+        self.box_table_map = []  # Reset mapping setiap load gambar baru
         try:
             engine = create_engine(DB_URL)
             with engine.connect() as conn:
-                print(f"DEBUG: Querying DB for image_path = {image_path_db} on table {DB_TABLE}")
-                result = conn.execute(
-                    text(f"""
-                        SELECT anomaly_id, class_id, xcenter, ycenter, width, height
-                        FROM {DB_TABLE}
-                        WHERE image_path = :image_path
-                    """),
-                    {"image_path": image_path_db}
-                )
-                rows = result.fetchall()
-                print(f"DEBUG: Rows fetched = {len(rows)}")
-                for row in rows:
-                    print(f"DEBUG: Row = {row}")
-                    anomaly_id, class_id, xcenter, ycenter, width, height = row
-                    img_h, img_w = self.cv_image.shape[:2]
-                    box = self.box_manager.convert_from_normalized_center(
-                        (xcenter, ycenter, width, height), img_w, img_h
+                for DB_TABLE in ["anomaly", "defect"]:
+                    print(f"DEBUG: Querying DB for image_path = {image_path_db} on table {DB_TABLE}")
+                    result = conn.execute(
+                        text(f"""
+                            SELECT {DB_TABLE}_id, class_name, xcenter, ycenter, width, height
+                            FROM {DB_TABLE}
+                            JOIN class USING (class_id)
+                            WHERE image_path = :image_path
+                        """),
+                        {"image_path": image_path_db}
                     )
-                    boxes.append((box, anomaly_id, str(class_id)))
+                    rows = result.fetchall()
+                    print(f"DEBUG: Rows fetched from {DB_TABLE} = {len(rows)}")
+                    for row in rows:
+                        anomaly_id, class_id, xcenter, ycenter, width, height = row
+                        img_h, img_w = self.cv_image.shape[:2]
+                        box = self.box_manager.convert_from_normalized_center(
+                            (xcenter, ycenter, width, height), img_w, img_h
+                        )
+                        boxes.append((box, anomaly_id, str(class_id)))
+                        self.box_table_map.append((anomaly_id, DB_TABLE))  # <-- Simpan mapping
         except Exception as e:
             print(f"DB error: {e}")
         return boxes
@@ -274,6 +276,34 @@ class Annotator(QObject):
         Crucially, it correctly adjusts `self.selected_box_index` to
         maintain synchronization after deletion.
         """
+        # --- Tambahan: hapus dari database ---
+        if 0 <= index_to_delete < len(self.box_manager.boxes):
+            box, box_id, _ = self.box_manager.boxes[index_to_delete]
+            # Cari table_name dari mapping
+            table_name = None
+            for _id, _table in self.box_table_map:
+                if str(_id) == str(box_id):
+                    table_name = _table
+                    break
+            if table_name:
+                try:
+                    from sqlalchemy import create_engine, text
+                    from dotenv import load_dotenv
+                    import os
+
+                    load_dotenv()
+                    DB_URL = os.getenv("DB_URL")
+                    if DB_URL:
+                        engine = create_engine(DB_URL)
+                        with engine.connect() as conn:
+                            conn.execute(
+                                text(f"DELETE FROM {table_name} WHERE {table_name}_id = :box_id"),
+                                {"box_id": box_id}
+                            )
+                            conn.commit()
+                except Exception as e:
+                    print(f"DB delete error: {e}")
+
         if self.box_manager.delete_box(index_to_delete):
             self.draw_boxes()
             self.table_manager.update_table()  # Update the table to reflect the deletion
@@ -300,13 +330,23 @@ class Annotator(QObject):
             self.table_manager.update_table()
 
     def update_box_in_db(self, box_id, box, class_label):
+        # Cari table_name dari mapping
+        table_name = None
+        for _id, _table in self.box_table_map:
+            if str(_id) == str(box_id):
+                table_name = _table
+                break
+        if table_name is None:
+            print(f"Table name for box_id {box_id} not found!")
+            return
+
         from sqlalchemy import create_engine, text
         from dotenv import load_dotenv
         import os
 
         load_dotenv()
         DB_URL = os.getenv("DB_URL")
-        DB_TABLE = os.getenv("DB_TABLE", "anomaly")
+        DB_TABLE = table_name  # Gunakan table_name hasil mapping
 
         if not DB_URL:
             print("DB_URL environment variable is missing!")
@@ -314,10 +354,17 @@ class Annotator(QObject):
 
         img_h, img_w = self.cv_image.shape[:2]
         x_center, y_center, width, height = self.box_manager.convert_to_normalized_center(box, img_w, img_h)
-
+        
         try:
-            engine = create_engine(DB_URL)
+            engine = create_engine(DB_URL) 
             with engine.connect() as conn:
+                class_id = conn.execute(
+                    text("SELECT class_id FROM class WHERE class_name = :class_name"),
+                    {"class_name": class_label}
+                ).fetchone()[0]
+                if class_id is None:
+                    print(f"Class '{class_label}' not found in database!")
+                    return
                 conn.execute(
                     text(f"""
                         UPDATE {DB_TABLE}
@@ -326,18 +373,115 @@ class Annotator(QObject):
                             ycenter = :ycenter,
                             width = :width,
                             height = :height
-                        WHERE anomaly_id = :anomaly_id
+                        WHERE {DB_TABLE}_id = :box_id
                     """),
                     {
-                        "class_id": class_label,
+                        "class_id": class_id,
                         "xcenter": x_center,
                         "ycenter": y_center,
                         "width": width,
                         "height": height,
-                        "anomaly_id": box_id
+                        "box_id": box_id
                     }
                 )
                 conn.commit()
-                print(f"DEBUG: Updated box {box_id} in DB")
+                print(f"DEBUG: Updated box {box_id} in table {DB_TABLE}")
         except Exception as e:
             print(f"DB update error: {e}")
+
+    def save_final_defect(self):
+        """
+        Save all current boxes to the final_defect table in the database.
+        """
+        from sqlalchemy import create_engine, text
+        from dotenv import load_dotenv
+        import os
+
+        load_dotenv()
+        DB_URL = os.getenv("DB_URL")
+        if not DB_URL:
+            show_warning_popup("DB_URL environment variable is missing!")
+            return
+
+        img_h, img_w = self.cv_image.shape[:2]
+        image_path_db = self._convert_to_db_path(self.image_file_path)
+        try:
+            engine = create_engine(DB_URL)
+            with engine.connect() as conn:
+                # 1. Buat array source_ids dari semua box_id yang ada
+                source_ids = [str(box_id) for (_, box_id, _) in self.box_manager.boxes]
+                if source_ids:
+                    # 2. Hapus data final_defect yang source_id-nya ada di array
+                    # Buat parameter dinamis untuk setiap id
+                    placeholders = ','.join([f":id{i}" for i in range(len(source_ids))])
+                    params = {f"id{i}": v for i, v in enumerate(source_ids)}
+                    conn.execute(
+                        text(f"DELETE FROM final_defect WHERE source_id IN ({placeholders})"),
+                        params
+                    )
+                    conn.commit()
+
+                for idx, (box, box_id, class_label) in enumerate(self.box_manager.boxes):
+                    # Dapatkan class_id
+                    class_id_row = conn.execute(
+                        text("SELECT class_id FROM class WHERE class_name = :class_name"),
+                        {"class_name": class_label}
+                    ).fetchone()
+                    if not class_id_row:
+                        show_warning_popup(f"Class '{class_label}' not found in database!")
+                        continue
+                    class_id = class_id_row[0]
+
+                    # Generate ULID baru untuk final_id
+                    final_id = str(ulid.new())
+
+                    # Dapatkan source_id (gunakan box_id sebagai source_id)
+                    source_id = str(box_id)
+
+                    # Cari table_name asal dari mapping
+                    table_name = None
+                    for _id, _table in self.box_table_map:
+                        if str(_id) == str(box_id):
+                            table_name = _table
+                            break
+
+                    # Ambil nilai cl dari tabel asal
+                    cl_value = None
+                    if table_name:
+                        cl_row = conn.execute(
+                            text(f"SELECT cl FROM {table_name} WHERE {table_name}_id = :box_id"),
+                            {"box_id": box_id}
+                        ).fetchone()
+                        cl_value = cl_row[0] if cl_row else None
+
+                    # Konversi ke normalized center
+                    x_center, y_center, width, height = self.box_manager.convert_to_normalized_center(box, img_w, img_h)
+
+                    # Insert ke final_defect
+                    conn.execute(
+                        text("""
+                            INSERT INTO final_defect (
+                                final_id, image_path, source_id, class_id, training_id,
+                                confidence_level, xcenter, ycenter, width, height
+                            ) VALUES (
+                                :final_id, :image_path, :source_id, :class_id, :training_id,
+                                :confidence_level, :xcenter, :ycenter, :width, :height
+                            )
+                        """),
+                        {
+                            "final_id": final_id,
+                            "image_path": image_path_db,
+                            "source_id": source_id,
+                            "class_id": class_id,
+                            "training_id": None,
+                            "confidence_level": cl_value if cl_value is not None else 1.0,
+                            "xcenter": x_center,
+                            "ycenter": y_center,
+                            "width": width,
+                            "height": height
+                        }
+                    )
+                conn.commit()
+            show_warning_popup("Final defect data saved successfully!")
+        except Exception as e:
+            show_warning_popup(f"DB error: {e}")

@@ -28,6 +28,7 @@ class Ui_AnnotatorWidget(object):
         self.openButton = None
         self.imageLabel = None
         self.coordinatesTable = None
+        self.saveButton = None
 
     @property
     def coordinates_table_y_offset(self):
@@ -83,13 +84,17 @@ class Ui_AnnotatorWidget(object):
         self.coordinatesTable = QTableWidget(annotator_widget)
         self.coordinatesTable.setObjectName("coordinatesTable")
 
+        # Tambahkan tombol Save
+        self.saveButton = QPushButton(annotator_widget)
+        self.saveButton.setObjectName("saveButton")
+
     def _configure_layout_and_geometry(self):
         """Sets the geometry for each widget."""
         self.openButton.setGeometry(QRect(20, 20, 100, 30))
         self.imageLabel.setGeometry(QRect(20, 70, 500, 500))
-        # Note: The table geometry is set to a larger width to better accommodate 7 columns
-        # Increased width for better visibility
         self.coordinatesTable.setGeometry(QRect(540, 70, self.coordinates_table_width, self.coordinates_table_height))
+        # Letakkan tombol Save di bawah tabel
+        self.saveButton.setGeometry(QRect(540, 80 + self.coordinates_table_height, 120, 35))
 
     def _configure_coordinates_table(self):
         """Configures the coordinates table including headers and column widths."""
@@ -127,3 +132,4 @@ class Ui_AnnotatorWidget(object):
         """Translates UI text. This function is typically auto-generated."""
         # Widget text is set here, separated from layout configuration
         self.openButton.setText(QCoreApplication.translate("AnnotatorWidget", "Open Image", None))
+        self.saveButton.setText(QCoreApplication.translate("AnnotatorWidget", "Save Final", None))

@@ -45,6 +45,52 @@ class BoxOperations:
                 self.annotator.box_manager.selected_box_index = len(self.annotator.box_manager.boxes) - 1
                 self.annotator.table_manager.update_table()
 
+                # --- Tambahan: Simpan ke database ---
+                try:
+                    from sqlalchemy import create_engine, text
+                    from dotenv import load_dotenv
+                    import os
+
+                    load_dotenv()
+                    DB_URL = os.getenv("DB_URL")
+                    if DB_URL:
+                        engine = create_engine(DB_URL)
+                        with engine.connect() as conn:
+                            # Ambil class_id untuk "Anomaly"
+                            class_id_row = conn.execute(
+                                text("SELECT class_id FROM class WHERE class_name = :class_name"),
+                                {"class_name": "Anomaly"}
+                            ).fetchone()
+                            if not class_id_row:
+                                show_warning_popup("Class 'Anomaly' not found in database!")
+                            else:
+                                class_id = class_id_row[0]
+                                image_path_db = self.annotator._convert_to_db_path(self.annotator.image_file_path)
+                                conn.execute(
+                                    text("""
+                                        INSERT INTO anomaly (
+                                            anomaly_id, class_id, image_path, xcenter, ycenter, width, height, cl
+                                        ) VALUES (
+                                            :anomaly_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl
+                                        )
+                                    """),
+                                    {
+                                        "anomaly_id": box_id,
+                                        "class_id": class_id,
+                                        "image_path": image_path_db,
+                                        "xcenter": x_center,
+                                        "ycenter": y_center,
+                                        "width": width,
+                                        "height": height,
+                                        "cl": 1.0  # default CL
+                                    }
+                                )
+                                conn.commit()
+                                # Update mapping box_table_map
+                                self.annotator.box_table_map.append((box_id, "anomaly"))
+                except Exception as e:
+                    show_warning_popup(f"DB error (insert anomaly): {e}")
+
         self.annotator.drawing = False
         self.annotator.start_point = None
         self.annotator.end_point = None

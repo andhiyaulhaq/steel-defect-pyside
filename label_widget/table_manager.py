@@ -150,20 +150,18 @@ class TableManager:
             if 0 <= selected_row < len(self.annotator.box_manager.boxes):
                 if self.annotator.box_manager.selected_box_index != selected_row:
                     self.annotator.box_manager.selected_box_index = selected_row
-                    self.annotator.box_manager.draw_boxes()
+                    self.annotator.draw_boxes()  # <-- Perbaikan di sini
         else:
             if self.annotator.box_manager.selected_box_index != -1:
                 self.annotator.box_manager.selected_box_index = -1
-                self.annotator.box_manager.draw_boxes()
+                self.annotator.draw_boxes()  # <-- Perbaikan di sini
 
     def handle_item_changed(self, item):
         row = item.row()
         col = item.column()
-        # Pastikan hanya update jika kolom yang diubah adalah kolom editable (misal class, x-center, y-center, width, height)
-        if col < 2:  # Misal kolom 0: No, 1: Box Id, tidak boleh diedit
+        if col < 2:
             return
 
-        # Ambil data terbaru dari tabel
         box_id = self.table_widget.item(row, 1).text()
         class_label = self.table_widget.item(row, 2).text()
         x_center = float(self.table_widget.item(row, 3).text())
@@ -171,14 +169,98 @@ class TableManager:
         width = float(self.table_widget.item(row, 5).text())
         height = float(self.table_widget.item(row, 6).text())
 
-        # Konversi ke koordinat pixel
         img_h, img_w = self.annotator.cv_image.shape[:2]
         box = self.annotator.box_manager.convert_from_normalized_center(
             (x_center, y_center, width, height), img_w, img_h
         )
 
-        # Update di box_manager
-        self.annotator.box_manager.boxes[row] = (box, box_id, class_label)
+        # Cek perpindahan tabel
+        # Cari table_name asal dari mapping
+        table_name = None
+        for _id, _table in self.annotator.box_table_map:
+            if str(_id) == str(box_id):
+                table_name = _table
+                break
 
-        # Update ke database
-        self.annotator.update_box_in_db(box_id, box, class_label)
+        # Tentukan table tujuan
+        if class_label.lower() == "anomaly":
+            new_table = "anomaly"
+        else:
+            new_table = "defect"
+
+        if table_name != new_table:
+            # Perlu pindah tabel di DB
+            from sqlalchemy import create_engine, text
+            from dotenv import load_dotenv
+            import os
+
+            load_dotenv()
+            DB_URL = os.getenv("DB_URL")
+            if not DB_URL:
+                print("DB_URL environment variable is missing!")
+                return
+
+            x_center, y_center, width, height = self.annotator.box_manager.convert_to_normalized_center(box, img_w, img_h)
+            try:
+                engine = create_engine(DB_URL)
+                with engine.connect() as conn:
+                    # Ambil nilai CL dari tabel asal
+                    cl_row = conn.execute(
+                        text(f"SELECT cl FROM {table_name} WHERE {table_name}_id = :box_id"),
+                        {"box_id": box_id}
+                    ).fetchone()
+                    cl_value = cl_row[0] if cl_row else None
+
+                    # Dapatkan class_id baru
+                    class_id = conn.execute(
+                        text("SELECT class_id FROM class WHERE class_name = :class_name"),
+                        {"class_name": class_label}
+                    ).fetchone()
+                    if not class_id:
+                        show_warning_popup(f"Class '{class_label}' not found in database!")
+                        return
+                    class_id = class_id[0]
+
+                    # Hapus dari tabel asal
+                    conn.execute(
+                        text(f"DELETE FROM {table_name} WHERE {table_name}_id = :box_id"),
+                        {"box_id": box_id}
+                    )
+
+                    # Insert ke tabel tujuan, gunakan id lama sebagai id baru, sertakan CL
+                    result = conn.execute(
+                        text(f"""
+                            INSERT INTO {new_table} ({new_table}_id, class_id, image_path, xcenter, ycenter, width, height, CL)
+                            VALUES (:box_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl)
+                        """),
+                        {
+                            "box_id": box_id,  # gunakan id lama
+                            "class_id": class_id,
+                            "image_path": self.annotator._convert_to_db_path(self.annotator.image_file_path),
+                            "xcenter": x_center,
+                            "ycenter": y_center,
+                            "width": width,
+                            "height": height,
+                            "cl": cl_value
+                        }
+                    )
+                    new_id = box_id  # id tetap sama
+                    conn.commit()
+
+                    # Update mapping box_table_map
+                    for idx, (_id, _table) in enumerate(self.annotator.box_table_map):
+                        if str(_id) == str(box_id):
+                            self.annotator.box_table_map[idx] = (new_id, new_table)
+                            break
+
+                    # Update box_id di box_manager
+                    self.annotator.box_manager.boxes[row] = (box, new_id, class_label)
+            except Exception as e:
+                show_warning_popup(f"DB error: {e}")
+                return
+        else:
+            # Tidak pindah tabel, hanya update
+            self.annotator.box_manager.boxes[row] = (box, box_id, class_label)
+            self.annotator.update_box_in_db(box_id, box, class_label)
+
+        self.annotator.draw_boxes()
