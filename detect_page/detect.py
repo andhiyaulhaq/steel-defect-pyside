@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 
@@ -95,6 +96,12 @@ class VideoDetectionWidget(QMainWindow):
         self.ui.pause_button.clicked.connect(self.pause_video)
         self.ui.stop_button.clicked.connect(self.stop_video)
 
+        self.capture_state = "wait_defect_center"
+        self.capture_delay_until = 0
+        self.last_saved_fps = 0
+        self.defect_first_seen_time = None
+        self.defect_first_seen_x0 = None
+
     def open_and_detect_video(self):
         """Open a video file and start processing it."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -168,6 +175,7 @@ class VideoDetectionWidget(QMainWindow):
         else:
             self.ui.processing_time_label.setText("Processing Time: N/A")
             self.ui.fps_label.setText("FPS: N/A")
+            fps = 0
 
         frame_display = cv2.resize(
             frame,
@@ -226,7 +234,38 @@ class VideoDetectionWidget(QMainWindow):
 
         self.update_detection_table(detection_data)
 
-        # FIX THIS PART:
+        # Screenshot logic with custom delay
+        img_w = self.ui.detection_image_label.width()
+        center_x = img_w // 2
+        center_threshold = img_w * 0.05  # 5% of width
+
+        defect = min(detection_data, key=lambda d: d["x0"]) if detection_data else None
+
+        now = time.time()
+        if self.capture_state == "wait_defect_center":
+            if defect is not None:
+                x_center = int((defect["x0"] + defect["x1"]) / 2 * scale_x)
+                if self.defect_first_seen_time is None:
+                    self.defect_first_seen_time = now
+                if abs(x_center - center_x) < center_threshold:
+                    time_to_center = now - self.defect_first_seen_time
+                    delay_duration = 2 * time_to_center
+                    self.save_screenshot(frame_display, fps)
+                    self.capture_delay_until = now + delay_duration
+                    self.capture_state = "wait_delay"
+                    self.defect_first_seen_time = None
+            else:
+                self.defect_first_seen_time = None
+
+        elif self.capture_state == "wait_delay":
+            if now >= self.capture_delay_until:
+                if defect:
+                    self.save_screenshot(frame_display, fps)
+                    self.capture_state = "wait_defect_center"
+                else:
+                    self.capture_state = "wait_defect_center"
+
+        # Display frame
         frame_rgb = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
         h, w, _ch = frame_rgb.shape  # Get channels
         bytes_per_line = frame_rgb.strides[0]  # Use strides for robustness
@@ -314,6 +353,17 @@ class VideoDetectionWidget(QMainWindow):
                     * self.frame_duration
                 )
                 self.timer.start(max(1, int(self.frame_duration * 1000)))
+
+    def save_screenshot(self, frame, fps):
+        """Save the current frame with bounding boxes and log the fps"""
+        screenshot_dir = "screenshot"
+        os.makedirs(screenshot_dir, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = os.path.join(
+            screenshot_dir, f"screenshot_{timestamp}_{fps:.2f}fps.png"
+        )
+        cv2.imwrite(filename, frame)
+        print(f"[INFO] Screenshot saved as {filename}")
 
 
 if __name__ == "__main__":
