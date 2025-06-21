@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 from dotenv import load_dotenv
 import os
+import ulid
 
 
 class Annotator(QObject):
@@ -53,6 +54,8 @@ class Annotator(QObject):
 
         # Connect UI signals to slots (event handlers)
         self.open_button.clicked.connect(self.open_image)
+        self.save_button = ui.saveButton  # Tambahkan ini
+        self.save_button.clicked.connect(self.save_final_defect)  # Hubungkan tombol
 
         # Internal state variables for image and bounding boxes
         self.cv_image = None  # Stores the original OpenCV image
@@ -357,3 +360,87 @@ class Annotator(QObject):
                 print(f"DEBUG: Updated box {box_id} in table {DB_TABLE}")
         except Exception as e:
             print(f"DB update error: {e}")
+
+    def save_final_defect(self):
+        """
+        Save all current boxes to the final_defect table in the database.
+        """
+        from sqlalchemy import create_engine, text
+        from dotenv import load_dotenv
+        import os
+
+        load_dotenv()
+        DB_URL = os.getenv("DB_URL")
+        if not DB_URL:
+            show_warning_popup("DB_URL environment variable is missing!")
+            return
+
+        img_h, img_w = self.cv_image.shape[:2]
+        image_path_db = self._convert_to_db_path(self.image_file_path)
+        try:
+            engine = create_engine(DB_URL)
+            with engine.connect() as conn:
+                for idx, (box, box_id, class_label) in enumerate(self.box_manager.boxes):
+                    # Dapatkan class_id
+                    class_id_row = conn.execute(
+                        text("SELECT class_id FROM class WHERE class_name = :class_name"),
+                        {"class_name": class_label}
+                    ).fetchone()
+                    if not class_id_row:
+                        show_warning_popup(f"Class '{class_label}' not found in database!")
+                        continue
+                    class_id = class_id_row[0]
+
+                    # Generate ULID baru untuk final_id
+                    final_id = str(ulid.new())
+
+                    # Dapatkan source_id (gunakan box_id sebagai source_id)
+                    source_id = str(box_id)
+
+                    # Cari table_name asal dari mapping
+                    table_name = None
+                    for _id, _table in self.box_table_map:
+                        if str(_id) == str(box_id):
+                            table_name = _table
+                            break
+
+                    # Ambil nilai cl dari tabel asal
+                    cl_value = None
+                    if table_name:
+                        cl_row = conn.execute(
+                            text(f"SELECT cl FROM {table_name} WHERE {table_name}_id = :box_id"),
+                            {"box_id": box_id}
+                        ).fetchone()
+                        cl_value = cl_row[0] if cl_row else None
+
+                    # Konversi ke normalized center
+                    x_center, y_center, width, height = self.box_manager.convert_to_normalized_center(box, img_w, img_h)
+
+                    # Insert ke final_defect
+                    conn.execute(
+                        text("""
+                            INSERT INTO final_defect (
+                                final_id, image_path, source_id, class_id, training_id,
+                                confidence_level, xcenter, ycenter, width, height
+                            ) VALUES (
+                                :final_id, :image_path, :source_id, :class_id, :training_id,
+                                :confidence_level, :xcenter, :ycenter, :width, :height
+                            )
+                        """),
+                        {
+                            "final_id": final_id,
+                            "image_path": image_path_db,
+                            "source_id": source_id,
+                            "class_id": class_id,
+                            "training_id": None,
+                            "confidence_level": cl_value if cl_value is not None else 1.0,
+                            "xcenter": x_center,
+                            "ycenter": y_center,
+                            "width": width,
+                            "height": height
+                        }
+                    )
+                conn.commit()
+            show_warning_popup("Final defect data saved successfully!")
+        except Exception as e:
+            show_warning_popup(f"DB error: {e}")
