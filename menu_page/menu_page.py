@@ -1,25 +1,37 @@
-from PySide6.QtUiTools import QUiLoader
-from PySide6.QtWidgets import QPushButton, QLabel, QComboBox
-import os
+"""
+This module handles the menu page of the application.
+"""
+
 from functools import partial
-from general_function.move_page import move_page
+
+from PySide6.QtWidgets import QMainWindow
+
 from general_function.handle_logout import handle_logout
+from general_function.move_page import move_page
+from menu_page.ui_menu import UiMainWindow
+
 
 def menu_page(self):
-    loader = QUiLoader()
-    ui_path = os.path.join(os.path.dirname(__file__), "menu_page.ui")
-    ui = loader.load(ui_path)
+    """Initialize the menu page of the application."""
+    window = QMainWindow()
+    ui = UiMainWindow()  # Changed to PascalCase
+    ui.setup_ui(window)  # Changed to snake_case
+
+    # Add window to stack widget
     stack_widget = self.central_widget
-    stack_widget.addWidget(ui)
-    stack_widget.setCurrentWidget(ui) 
+    stack_widget.addWidget(window)
+    stack_widget.setCurrentWidget(window)
 
+    # Set username in title
     username = self.username
-    titleText = ui.findChild(QLabel, 'titleText')
-    text = titleText.text().replace("{username}", username)
-    titleText.setText(text) 
+    text = ui.title_text.text().replace("{username}", username)
+    ui.title_text.setText(text)
 
-    page_select = ui.findChild(QComboBox, 'comboBox')
-    page_select.currentIndexChanged.connect(partial(move_page, self, page_select))
+    # Connect signals
+    ui.combo_box.currentIndexChanged.connect(partial(move_page, self, ui.combo_box))
+    ui.logout_button.clicked.connect(lambda: (handle_logout, self))
 
-    logoutButton = ui.findChild(QPushButton, 'logoutButton')
-    logoutButton.clicked.connect(partial(handle_logout, self))   
+    # Update window title with username
+    if hasattr(self, "username"):
+        text = ui.title_text.text().replace("{username}", self.username)
+        ui.title_text.setText(text)

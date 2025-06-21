@@ -3,7 +3,7 @@
 from functools import partial
 
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtWidgets import QLineEdit, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QMainWindow, QMessageBox
 
 from login_page.query import (
     auth,
@@ -44,7 +44,7 @@ class EnterEventFilter(QObject):
         self.parent = parent
         self.ui = ui
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, _obj, event):
         """Filter events to handle Enter key press.
 
         Args:
