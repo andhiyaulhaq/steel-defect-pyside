@@ -1,3 +1,4 @@
+import csv  # Add this import at the top
 import os
 import sys
 import time
@@ -102,6 +103,13 @@ class VideoDetectionWidget(QMainWindow):
         self.defect_first_seen_time = None
         self.defect_first_seen_x0 = None
 
+        self.fps_log_path = "fps_history.csv"
+        # Initialize the CSV file with header if not exists
+        if not os.path.exists(self.fps_log_path):
+            with open(self.fps_log_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["time", "fps"])
+
     def open_and_detect_video(self):
         """Open a video file and start processing it."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -189,6 +197,13 @@ class VideoDetectionWidget(QMainWindow):
             self.ui.processing_time_label.setText("Processing Time: N/A")
             self.ui.fps_label.setText("FPS: N/A")
             fps = 0
+
+        # --- Modified block to log FPS history ---
+        now_float = time.time()
+        with open(self.fps_log_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([now_float, f"{fps:.2f}"])
+        # --- End of modified FPS logging block ---
 
         detection_data = []
         for result in results:
