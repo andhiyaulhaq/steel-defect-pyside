@@ -223,6 +223,7 @@ class VideoDetectionWidget(QMainWindow):
 
                 detection_data.append(
                     {
+                        "class_id": class_id,  # tambahkan ini
                         "class": class_name,
                         "confidence": confidence,
                         "x0": x0,
@@ -371,12 +372,10 @@ class VideoDetectionWidget(QMainWindow):
 
         # Save annotation in YOLO format
         txt_path = f"{filename_base}.txt"
-        with open(txt_path, "w") as f:
+        with open(txt_path, "w", encoding="utf-8") as f:
             for det in detections:
                 # Get class_id from model.names
-                class_id = list(model.names.keys())[
-                    list(model.names.values()).index(det["class"])
-                ]
+                class_id = det["class_id"]
                 # Normalize coordinates (relative to 640x640)
                 x_center = (det["x0"] + det["x1"]) / 2 / 640
                 y_center = (det["y0"] + det["y1"]) / 2 / 640
