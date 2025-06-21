@@ -276,6 +276,34 @@ class Annotator(QObject):
         Crucially, it correctly adjusts `self.selected_box_index` to
         maintain synchronization after deletion.
         """
+        # --- Tambahan: hapus dari database ---
+        if 0 <= index_to_delete < len(self.box_manager.boxes):
+            box, box_id, _ = self.box_manager.boxes[index_to_delete]
+            # Cari table_name dari mapping
+            table_name = None
+            for _id, _table in self.box_table_map:
+                if str(_id) == str(box_id):
+                    table_name = _table
+                    break
+            if table_name:
+                try:
+                    from sqlalchemy import create_engine, text
+                    from dotenv import load_dotenv
+                    import os
+
+                    load_dotenv()
+                    DB_URL = os.getenv("DB_URL")
+                    if DB_URL:
+                        engine = create_engine(DB_URL)
+                        with engine.connect() as conn:
+                            conn.execute(
+                                text(f"DELETE FROM {table_name} WHERE {table_name}_id = :box_id"),
+                                {"box_id": box_id}
+                            )
+                            conn.commit()
+                except Exception as e:
+                    print(f"DB delete error: {e}")
+
         if self.box_manager.delete_box(index_to_delete):
             self.draw_boxes()
             self.table_manager.update_table()  # Update the table to reflect the deletion
@@ -380,6 +408,19 @@ class Annotator(QObject):
         try:
             engine = create_engine(DB_URL)
             with engine.connect() as conn:
+                # 1. Buat array source_ids dari semua box_id yang ada
+                source_ids = [str(box_id) for (_, box_id, _) in self.box_manager.boxes]
+                if source_ids:
+                    # 2. Hapus data final_defect yang source_id-nya ada di array
+                    # Buat parameter dinamis untuk setiap id
+                    placeholders = ','.join([f":id{i}" for i in range(len(source_ids))])
+                    params = {f"id{i}": v for i, v in enumerate(source_ids)}
+                    conn.execute(
+                        text(f"DELETE FROM final_defect WHERE source_id IN ({placeholders})"),
+                        params
+                    )
+                    conn.commit()
+
                 for idx, (box, box_id, class_label) in enumerate(self.box_manager.boxes):
                     # Dapatkan class_id
                     class_id_row = conn.execute(
