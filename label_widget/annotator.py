@@ -14,6 +14,11 @@ from .handlers.image_handler import ImageHandler
 from .table_manager import TableManager
 from .ui_label import Ui_AnnotatorWidget
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+from dotenv import load_dotenv
+import os
+
 
 class Annotator(QObject):
     """
@@ -38,7 +43,7 @@ class Annotator(QObject):
         self.open_button: QPushButton = ui.openButton
         self.coordinates_table: QTableWidget = ui.coordinatesTable
         # Initialize TableManager
-        self.table_manager = TableManager(self.coordinates_table)
+        self.table_manager = TableManager(self, ui.coordinatesTable)
         self.table_manager.set_annotator(self)  # Set reference to this annotator instance
 
         # Basic check to ensure UI elements are found
@@ -109,13 +114,77 @@ class Annotator(QObject):
                 return
 
             self.display_image = self.cv_image.copy()
-            self.box_manager.boxes.clear()  # Clear existing boxes
-            self.box_manager.selected_box_index = -1  # Deselect any box
-            self._adjust_ui_layout(self.original_pixmap.size())  # Adjust layout based on image size
+            # --- Tambahan: Query database berdasarkan path ---
+            image_path_db = self._convert_to_db_path(file_path)
+            boxes_from_db = self._load_boxes_from_db(image_path_db)
+            self.box_manager.boxes = boxes_from_db  # Isi dari database
+            self.box_manager.selected_box_index = -1
+            self._adjust_ui_layout(self.original_pixmap.size())
             self.image_label.setPixmap(self.original_pixmap)
-            self.draw_boxes()  # Redraw with no boxes initially
-            self.table_manager.update_table()  # Clear and update the table
+            self.draw_boxes()
+            self.table_manager.update_table()
 
+    def _convert_to_db_path(self, file_path):
+        import os
+        # Ganti path ini sesuai root project Anda
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        rel_path = os.path.relpath(file_path, start=project_root)
+        db_path = '/' + rel_path.replace('\\', '/')
+        print(f"DEBUG: file_path={file_path}")
+        print(f"DEBUG: db_path={db_path}")
+        return db_path
+
+    def _load_boxes_from_db(self, image_path_db):
+        from sqlalchemy import create_engine, text
+        from dotenv import load_dotenv
+        import os
+
+        load_dotenv()
+        DB_URL = os.getenv("DB_URL")
+
+        # Pilih nama tabel berdasarkan path
+        if "/anomaly/" in image_path_db:
+            DB_TABLE = "anomaly"
+        elif "/defect/" in image_path_db:
+            DB_TABLE = "defect"
+        else:
+            DB_TABLE = os.getenv("DB_TABLE", "anomaly")  # fallback default
+
+        if not DB_URL:
+            print("DB_URL environment variable is missing!")
+            return []
+
+        boxes = []
+        try:
+            engine = create_engine(DB_URL)
+            with engine.connect() as conn:
+                print(f"DEBUG: Querying DB for image_path = {image_path_db} on table {DB_TABLE}")
+                result = conn.execute(
+                    text(f"""
+                        SELECT anomaly_id, class_id, xcenter, ycenter, width, height
+                        FROM {DB_TABLE}
+                        WHERE image_path = :image_path
+                    """),
+                    {"image_path": image_path_db}
+                )
+                rows = result.fetchall()
+                print(f"DEBUG: Rows fetched = {len(rows)}")
+                for row in rows:
+                    print(f"DEBUG: Row = {row}")
+                    anomaly_id, class_id, xcenter, ycenter, width, height = row
+                    img_h, img_w = self.cv_image.shape[:2]
+                    box = self.box_manager.convert_from_normalized_center(
+                        (xcenter, ycenter, width, height), img_w, img_h
+                    )
+                    boxes.append((box, anomaly_id, str(class_id)))
+        except Exception as e:
+            print(f"DB error: {e}")
+        return boxes
+
+    def convert_to_db_path(self, file_path):
+        import os
+        rel_path = os.path.relpath(file_path, start=os.path.dirname(os.path.dirname(file_path)))
+        return '/' + rel_path.replace('\\', '/')
     def _adjust_ui_layout(self, image_size: QSize):
         """
         Adjusts the size and position of the image label and coordinates table
@@ -229,3 +298,46 @@ class Annotator(QObject):
             # If resizing was successful, redraw the boxes and update the table
             self.draw_boxes()
             self.table_manager.update_table()
+
+    def update_box_in_db(self, box_id, box, class_label):
+        from sqlalchemy import create_engine, text
+        from dotenv import load_dotenv
+        import os
+
+        load_dotenv()
+        DB_URL = os.getenv("DB_URL")
+        DB_TABLE = os.getenv("DB_TABLE", "anomaly")
+
+        if not DB_URL:
+            print("DB_URL environment variable is missing!")
+            return
+
+        img_h, img_w = self.cv_image.shape[:2]
+        x_center, y_center, width, height = self.box_manager.convert_to_normalized_center(box, img_w, img_h)
+
+        try:
+            engine = create_engine(DB_URL)
+            with engine.connect() as conn:
+                conn.execute(
+                    text(f"""
+                        UPDATE {DB_TABLE}
+                        SET class_id = :class_id,
+                            xcenter = :xcenter,
+                            ycenter = :ycenter,
+                            width = :width,
+                            height = :height
+                        WHERE anomaly_id = :anomaly_id
+                    """),
+                    {
+                        "class_id": class_label,
+                        "xcenter": x_center,
+                        "ycenter": y_center,
+                        "width": width,
+                        "height": height,
+                        "anomaly_id": box_id
+                    }
+                )
+                conn.commit()
+                print(f"DEBUG: Updated box {box_id} in DB")
+        except Exception as e:
+            print(f"DB update error: {e}")

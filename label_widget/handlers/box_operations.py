@@ -66,6 +66,11 @@ class BoxOperations:
         self.annotator.resize_box_index = None
         self.annotator.resize_edge = None
         self.annotator.table_manager.update_table()
+        # --- Tambahan: update DB ---
+        idx = self.annotator.box_manager.selected_box_index
+        if 0 <= idx < len(self.annotator.box_manager.boxes):
+            box, box_id, class_label = self.annotator.box_manager.boxes[idx]
+            self.annotator.update_box_in_db(box_id, box, class_label)
 
     def start_dragging(self, index, pos):
         self.annotator.box_manager.selected_box_index = index
@@ -105,3 +110,8 @@ class BoxOperations:
         self.annotator.drag_box_index = None
         self.annotator.drag_start_pos = None
         self.annotator.table_manager.update_table()
+        # --- Tambahan: update DB ---
+        idx = self.annotator.box_manager.selected_box_index
+        if 0 <= idx < len(self.annotator.box_manager.boxes):
+            box, box_id, class_label = self.annotator.box_manager.boxes[idx]
+            self.annotator.update_box_in_db(box_id, box, class_label)
