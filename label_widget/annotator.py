@@ -80,11 +80,14 @@ class Annotator(QObject):
 
         self.event_handler = AnnotatorEventHandler(self)
         self.box_manager = BoundingBoxManager()  # Initialize the bounding box manager
+        self.box_table_map = []  # <-- Tambahkan ini
 
         # Install event filters to capture mouse and keyboard events on relevant widgets
         self.main_window.installEventFilter(self)
         self.image_label.installEventFilter(self)
         self.coordinates_table.installEventFilter(self)
+
+        self.image_file_path = None  # Tambahkan ini
 
     def eventFilter(self, source, event):
         # return event_filter_impl(self, source, event)
@@ -99,6 +102,7 @@ class Annotator(QObject):
             None, "Open Image", "", "Images (*.png *.jpg *.bmp *.jpeg)"
         )
         if file_path:
+            self.image_file_path = file_path  # Simpan path file di sini
             self.cv_image = cv2.imread(file_path)
             if self.cv_image is None:
                 show_warning_popup(
@@ -142,41 +146,36 @@ class Annotator(QObject):
         load_dotenv()
         DB_URL = os.getenv("DB_URL")
 
-        # Pilih nama tabel berdasarkan path
-        if "/anomaly/" in image_path_db:
-            DB_TABLE = "anomaly"
-        elif "/defect/" in image_path_db:
-            DB_TABLE = "defect"
-        else:
-            DB_TABLE = os.getenv("DB_TABLE", "anomaly")  # fallback default
-
         if not DB_URL:
             print("DB_URL environment variable is missing!")
             return []
 
         boxes = []
+        self.box_table_map = []  # Reset mapping setiap load gambar baru
         try:
             engine = create_engine(DB_URL)
             with engine.connect() as conn:
-                print(f"DEBUG: Querying DB for image_path = {image_path_db} on table {DB_TABLE}")
-                result = conn.execute(
-                    text(f"""
-                        SELECT anomaly_id, class_id, xcenter, ycenter, width, height
-                        FROM {DB_TABLE}
-                        WHERE image_path = :image_path
-                    """),
-                    {"image_path": image_path_db}
-                )
-                rows = result.fetchall()
-                print(f"DEBUG: Rows fetched = {len(rows)}")
-                for row in rows:
-                    print(f"DEBUG: Row = {row}")
-                    anomaly_id, class_id, xcenter, ycenter, width, height = row
-                    img_h, img_w = self.cv_image.shape[:2]
-                    box = self.box_manager.convert_from_normalized_center(
-                        (xcenter, ycenter, width, height), img_w, img_h
+                for DB_TABLE in ["anomaly", "defect"]:
+                    print(f"DEBUG: Querying DB for image_path = {image_path_db} on table {DB_TABLE}")
+                    result = conn.execute(
+                        text(f"""
+                            SELECT {DB_TABLE}_id, class_name, xcenter, ycenter, width, height
+                            FROM {DB_TABLE}
+                            JOIN class USING (class_id)
+                            WHERE image_path = :image_path
+                        """),
+                        {"image_path": image_path_db}
                     )
-                    boxes.append((box, anomaly_id, str(class_id)))
+                    rows = result.fetchall()
+                    print(f"DEBUG: Rows fetched from {DB_TABLE} = {len(rows)}")
+                    for row in rows:
+                        anomaly_id, class_id, xcenter, ycenter, width, height = row
+                        img_h, img_w = self.cv_image.shape[:2]
+                        box = self.box_manager.convert_from_normalized_center(
+                            (xcenter, ycenter, width, height), img_w, img_h
+                        )
+                        boxes.append((box, anomaly_id, str(class_id)))
+                        self.box_table_map.append((anomaly_id, DB_TABLE))  # <-- Simpan mapping
         except Exception as e:
             print(f"DB error: {e}")
         return boxes
@@ -300,13 +299,23 @@ class Annotator(QObject):
             self.table_manager.update_table()
 
     def update_box_in_db(self, box_id, box, class_label):
+        # Cari table_name dari mapping
+        table_name = None
+        for _id, _table in self.box_table_map:
+            if str(_id) == str(box_id):
+                table_name = _table
+                break
+        if table_name is None:
+            print(f"Table name for box_id {box_id} not found!")
+            return
+
         from sqlalchemy import create_engine, text
         from dotenv import load_dotenv
         import os
 
         load_dotenv()
         DB_URL = os.getenv("DB_URL")
-        DB_TABLE = os.getenv("DB_TABLE", "anomaly")
+        DB_TABLE = table_name  # Gunakan table_name hasil mapping
 
         if not DB_URL:
             print("DB_URL environment variable is missing!")
@@ -314,10 +323,17 @@ class Annotator(QObject):
 
         img_h, img_w = self.cv_image.shape[:2]
         x_center, y_center, width, height = self.box_manager.convert_to_normalized_center(box, img_w, img_h)
-
+        
         try:
-            engine = create_engine(DB_URL)
+            engine = create_engine(DB_URL) 
             with engine.connect() as conn:
+                class_id = conn.execute(
+                    text("SELECT class_id FROM class WHERE class_name = :class_name"),
+                    {"class_name": class_label}
+                ).fetchone()[0]
+                if class_id is None:
+                    print(f"Class '{class_label}' not found in database!")
+                    return
                 conn.execute(
                     text(f"""
                         UPDATE {DB_TABLE}
@@ -326,18 +342,18 @@ class Annotator(QObject):
                             ycenter = :ycenter,
                             width = :width,
                             height = :height
-                        WHERE anomaly_id = :anomaly_id
+                        WHERE {DB_TABLE}_id = :box_id
                     """),
                     {
-                        "class_id": class_label,
+                        "class_id": class_id,
                         "xcenter": x_center,
                         "ycenter": y_center,
                         "width": width,
                         "height": height,
-                        "anomaly_id": box_id
+                        "box_id": box_id
                     }
                 )
                 conn.commit()
-                print(f"DEBUG: Updated box {box_id} in DB")
+                print(f"DEBUG: Updated box {box_id} in table {DB_TABLE}")
         except Exception as e:
             print(f"DB update error: {e}")
