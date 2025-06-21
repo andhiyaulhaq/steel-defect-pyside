@@ -163,6 +163,19 @@ class VideoDetectionWidget(QMainWindow):
         frame_yolo = cv2.resize(frame, (640, 640))
         results = model.predict(frame_yolo)
 
+        frame_display = cv2.resize(
+            frame,
+            (
+                self.ui.detection_image_label.width(),
+                self.ui.detection_image_label.height(),
+            ),
+        )
+        scale_x = frame_display.shape[1] / 640
+        scale_y = frame_display.shape[0] / 640
+
+        # Add this line to keep the clean frame for screenshot
+        frame_display_clean = frame_display.copy()
+
         # Extract speed information from the first result
         if results and hasattr(results[0], "speed"):
             speed = results[0].speed
@@ -176,16 +189,6 @@ class VideoDetectionWidget(QMainWindow):
             self.ui.processing_time_label.setText("Processing Time: N/A")
             self.ui.fps_label.setText("FPS: N/A")
             fps = 0
-
-        frame_display = cv2.resize(
-            frame,
-            (
-                self.ui.detection_image_label.width(),
-                self.ui.detection_image_label.height(),
-            ),
-        )
-        scale_x = frame_display.shape[1] / 640
-        scale_y = frame_display.shape[0] / 640
 
         detection_data = []
         for result in results:
@@ -250,7 +253,7 @@ class VideoDetectionWidget(QMainWindow):
                 if abs(x_center - center_x) < center_threshold:
                     time_to_center = now - self.defect_first_seen_time
                     delay_duration = 2 * time_to_center
-                    self.save_screenshot(frame_display, fps)
+                    self.save_screenshot(frame_display_clean, detection_data, fps)
                     self.capture_delay_until = now + delay_duration
                     self.capture_state = "wait_delay"
                     self.defect_first_seen_time = None
@@ -260,7 +263,7 @@ class VideoDetectionWidget(QMainWindow):
         elif self.capture_state == "wait_delay":
             if now >= self.capture_delay_until:
                 if defect:
-                    self.save_screenshot(frame_display, fps)
+                    self.save_screenshot(frame_display_clean, detection_data, fps)
                     self.capture_state = "wait_defect_center"
                 else:
                     self.capture_state = "wait_defect_center"
@@ -354,16 +357,35 @@ class VideoDetectionWidget(QMainWindow):
                 )
                 self.timer.start(max(1, int(self.frame_duration * 1000)))
 
-    def save_screenshot(self, frame, fps):
-        """Save the current frame with bounding boxes and log the fps"""
-        screenshot_dir = "screenshot"
+    def save_screenshot(self, frame, detections, fps):
+        """Save the current frame (without bounding boxes) and its annotation."""
+        screenshot_dir = "screenshots"
         os.makedirs(screenshot_dir, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = os.path.join(
-            screenshot_dir, f"screenshot_{timestamp}_{fps:.2f}fps.png"
-        )
-        cv2.imwrite(filename, frame)
-        print(f"[INFO] Screenshot saved as {filename}")
+        filename_base = os.path.join(screenshot_dir, f"{timestamp}")
+
+        # Save image
+        image_path = f"{filename_base}.png"
+        cv2.imwrite(image_path, frame)
+        print(f"[INFO] Screenshot saved as {image_path}")
+
+        # Save annotation in YOLO format
+        txt_path = f"{filename_base}.txt"
+        with open(txt_path, "w") as f:
+            for det in detections:
+                # Get class_id from model.names
+                class_id = list(model.names.keys())[
+                    list(model.names.values()).index(det["class"])
+                ]
+                # Normalize coordinates (relative to 640x640)
+                x_center = (det["x0"] + det["x1"]) / 2 / 640
+                y_center = (det["y0"] + det["y1"]) / 2 / 640
+                width = (det["x1"] - det["x0"]) / 640
+                height = (det["y1"] - det["y0"]) / 640
+                f.write(
+                    f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n"
+                )
+        print(f"[INFO] Annotation saved as {txt_path}")
 
 
 if __name__ == "__main__":
