@@ -1,4 +1,5 @@
 import csv  # Add this import at the top
+import datetime  # Add this import at the top
 import os
 import sys
 import time
@@ -6,6 +7,7 @@ import time
 import cv2
 import torch
 import ulid
+from dotenv import load_dotenv
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
@@ -21,9 +23,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from ultralytics import YOLO
 from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
+from ultralytics import YOLO
 
 from detect_page.ui_detect import Ui_detectWidget
 
@@ -136,6 +137,19 @@ class VideoDetectionWidget(QMainWindow):
             self.last_frame_display = None
             self.last_detections = []
             self.timer.start(max(1, int(self.frame_duration * 1000)))
+
+            # --- Create unique fps_history file in history folder ---
+            history_dir = "history"
+            os.makedirs(history_dir, exist_ok=True)
+            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            base_name = os.path.splitext(os.path.basename(file_path))[0]
+            self.fps_log_path = os.path.join(
+                history_dir, f"fps_history_{base_name}_{timestamp}.csv"
+            )
+            with open(self.fps_log_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["time", "fps"])
+            # -------------------------------------------------------
 
     def process_video(self):
         """Process the video frame by frame."""
@@ -392,7 +406,9 @@ class VideoDetectionWidget(QMainWindow):
         print(f"[INFO] Screenshot saved as {image_path}")
 
         # Ubah image_path untuk DB
-        db_image_path = f"/steel-defect-pyside/screenshots/{os.path.basename(image_path)}"
+        db_image_path = (
+            f"/steel-defect-pyside/screenshots/{os.path.basename(image_path)}"
+        )
 
         # Simpan langsung ke database tanpa membuat file .txt
         with engine.begin() as conn:
@@ -418,23 +434,30 @@ class VideoDetectionWidget(QMainWindow):
                 box_id = str(ulid.new())
 
                 # Insert ke tabel
-                query = text(f"""
-                    INSERT INTO {table} 
+                query = text(
+                    f"""
+                    INSERT INTO {table}
                     ({table}_id, class_id, image_path, xcenter, ycenter, width, height, cl)
                     VALUES
                     (:box_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl)
-                """)
-                conn.execute(query, {
-                    "box_id": box_id,
-                    "class_id": class_id,
-                    "image_path": db_image_path,
-                    "xcenter": x_center,
-                    "ycenter": y_center,
-                    "width": width,
-                    "height": height,
-                    "cl": confidence / 100.0
-                })
-        print(f"[INFO] Annotation disimpan ke database dengan image_path {db_image_path}")
+                """
+                )
+                conn.execute(
+                    query,
+                    {
+                        "box_id": box_id,
+                        "class_id": class_id,
+                        "image_path": db_image_path,
+                        "xcenter": x_center,
+                        "ycenter": y_center,
+                        "width": width,
+                        "height": height,
+                        "cl": confidence / 100.0,
+                    },
+                )
+        print(
+            f"[INFO] Annotation disimpan ke database dengan image_path {db_image_path}"
+        )
 
 
 if __name__ == "__main__":
