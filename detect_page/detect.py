@@ -1,5 +1,5 @@
-import csv  # Add this import at the top
-import datetime  # Add this at the top with other imports
+import csv
+import datetime
 import os
 import sys
 import time
@@ -24,6 +24,10 @@ from PySide6.QtWidgets import (
 )
 from ultralytics import YOLO
 
+# Tambahan untuk database
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+
 from detect_page.ui_detect import Ui_detectWidget
 
 # Set the device to GPU if available
@@ -32,6 +36,11 @@ print(f"[INFO] Using device: {device}")
 
 # Load the YOLO model
 model = YOLO("../weights/weight-merged.pt").to(device)
+
+# Inisialisasi database
+load_dotenv()
+DATABASE_URL = os.getenv("DB_URL")
+engine = create_engine(DATABASE_URL)
 
 
 class VideoDetectionWidget(QMainWindow):
@@ -388,7 +397,7 @@ class VideoDetectionWidget(QMainWindow):
                 self.timer.start(max(1, int(self.frame_duration * 1000)))
 
     def save_screenshot(self, frame, detections):
-        """Save the current frame (without bounding boxes) and its annotation."""
+        """Save the current frame (without bounding boxes) and its annotation, and insert to DB."""
         screenshot_dir = "screenshots"
         os.makedirs(screenshot_dir, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -399,25 +408,60 @@ class VideoDetectionWidget(QMainWindow):
         cv2.imwrite(image_path, frame)
         print(f"[INFO] Screenshot saved as {image_path}")
 
-        # Save annotation in YOLO format
-        txt_path = f"{filename_base}.txt"
-        with open(txt_path, "w", encoding="utf-8") as f:
+        # Ubah image_path untuk DB
+        db_image_path = f"/steel-defect-pyside/screenshots/{os.path.basename(image_path)}"
+
+        # Simpan langsung ke database tanpa membuat file .txt
+        with engine.begin() as conn:
             for det in detections:
-                # Get class_id from model.names
                 class_id = det["class_id"]
-                # Normalize coordinates (relative to 640x640)
+                class_name = det["class"]
+                confidence = det["confidence"]
                 x_center = (det["x0"] + det["x1"]) / 2 / 640
                 y_center = (det["y0"] + det["y1"]) / 2 / 640
                 width = (det["x1"] - det["x0"]) / 640
                 height = (det["y1"] - det["y0"]) / 640
-                f.write(
-                    f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n"
-                )
-        print(f"[INFO] Annotation saved as {txt_path}")
 
+                # Tentukan tabel tujuan
+                if class_name.lower() == "dents":
+                    class_name = "Dent"
+                    table = "defect"
+                elif class_name.lower() == "anomaly":
+                    table = "anomaly"
+                else:
+                    continue  # skip jika bukan defect/anomaly
+
+                # Generate ULID untuk primary key
+                box_id = str(ulid.new())
+
+                # Insert ke tabel
+                query = text(f"""
+                    INSERT INTO {table} 
+                    ({table}_id, class_id, image_path, xcenter, ycenter, width, height, cl)
+                    VALUES
+                    (:box_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl)
+                """)
+                conn.execute(query, {
+                    "box_id": box_id,
+                    "class_id": class_id,
+                    "image_path": db_image_path,
+                    "xcenter": x_center,
+                    "ycenter": y_center,
+                    "width": width,
+                    "height": height,
+                    "cl": confidence / 100.0
+                })
+        print(f"[INFO] Annotation disimpan ke database dengan image_path {db_image_path}")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    widget = VideoDetectionWidget()
-    widget.showMaximized()
-    sys.exit(app.exec())
+    try:
+        app = QApplication(sys.argv)
+        widget = VideoDetectionWidget()
+        widget.showMaximized()
+        sys.exit(app.exec())
+    except Exception as e:
+        import traceback
+        print("=== ERROR SAAT STARTUP ===")
+        print(e)
+        traceback.print_exc()
+        input("Tekan ENTER untuk keluar...")

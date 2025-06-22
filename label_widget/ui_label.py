@@ -48,7 +48,7 @@ class Ui_AnnotatorWidget(object):
     def setupUi(self, annotator_widget):
         if not annotator_widget.objectName():
             annotator_widget.setObjectName("AnnotatorWidget")
-        annotator_widget.resize(800, 600)
+        annotator_widget.resize(1400, 800)  # Lebarkan window agar layout lebih proporsional
         translated_title = QCoreApplication.translate(
             "AnnotatorWidget",
             "Image Annotator",
@@ -92,9 +92,21 @@ class Ui_AnnotatorWidget(object):
         """Sets the geometry for each widget."""
         self.openButton.setGeometry(QRect(20, 20, 100, 30))
         self.imageLabel.setGeometry(QRect(20, 70, 500, 500))
-        self.coordinatesTable.setGeometry(QRect(540, 70, self.coordinates_table_width, self.coordinates_table_height))
-        # Letakkan tombol Save di bawah tabel
-        self.saveButton.setGeometry(QRect(540, 80 + self.coordinates_table_height, 120, 35))
+        # Tabel di kanan atas
+        table_x = 850
+        table_y = 70
+        self.coordinatesTable.setGeometry(QRect(
+            table_x,
+            table_y,
+            self.coordinates_table_width,
+            self.coordinates_table_height
+        ))
+        # Tombol Save di bawah tabel, border kanan tombol sejajar border kanan tabel
+        save_btn_width = 120
+        save_btn_height = 35
+        save_btn_x = table_x + self.coordinates_table_width - save_btn_width  # border kanan tombol = border kanan tabel
+        save_btn_y = table_y + self.coordinates_table_height + 12
+        self.saveButton.setGeometry(QRect(save_btn_x, save_btn_y, save_btn_width, save_btn_height))
 
     def _configure_coordinates_table(self):
         """Configures the coordinates table including headers and column widths."""
