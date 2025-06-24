@@ -116,13 +116,6 @@ class VideoDetectionWidget(QMainWindow):
         self.defect_first_seen_time = None
         self.defect_first_seen_x0 = None
 
-        self.fps_log_path = "fps_history.csv"
-        # Initialize the CSV file with header if not exists
-        if not os.path.exists(self.fps_log_path):
-            with open(self.fps_log_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(["time", "fps"])
-
     def open_and_detect_video(self):
         """Open a video file and start processing it."""
         file_path, _ = QFileDialog.getOpenFileName(
