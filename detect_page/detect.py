@@ -7,6 +7,7 @@ import time
 import cv2
 import torch
 import ulid
+from dotenv import load_dotenv
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
@@ -22,11 +23,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from ultralytics import YOLO
 
 # Tambahan untuk database
 from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
+from ultralytics import YOLO
 
 from detect_page.ui_detect import Ui_detectWidget
 
@@ -34,8 +34,11 @@ from detect_page.ui_detect import Ui_detectWidget
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[INFO] Using device: {device}")
 
-# Load the YOLO model
-model = YOLO("../weights/weight-merged.pt").to(device)
+# Load the YOLO model using os.path for portability
+MODEL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "weights", "weight-merged.pt"
+)
+model = YOLO(MODEL_PATH).to(device)
 
 # Inisialisasi database
 load_dotenv()
@@ -409,7 +412,9 @@ class VideoDetectionWidget(QMainWindow):
         print(f"[INFO] Screenshot saved as {image_path}")
 
         # Ubah image_path untuk DB
-        db_image_path = f"/steel-defect-pyside/screenshots/{os.path.basename(image_path)}"
+        db_image_path = (
+            f"/steel-defect-pyside/screenshots/{os.path.basename(image_path)}"
+        )
 
         # Simpan langsung ke database tanpa membuat file .txt
         with engine.begin() as conn:
@@ -435,23 +440,31 @@ class VideoDetectionWidget(QMainWindow):
                 box_id = str(ulid.new())
 
                 # Insert ke tabel
-                query = text(f"""
-                    INSERT INTO {table} 
+                query = text(
+                    f"""
+                    INSERT INTO {table}
                     ({table}_id, class_id, image_path, xcenter, ycenter, width, height, cl)
                     VALUES
                     (:box_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl)
-                """)
-                conn.execute(query, {
-                    "box_id": box_id,
-                    "class_id": class_id,
-                    "image_path": db_image_path,
-                    "xcenter": x_center,
-                    "ycenter": y_center,
-                    "width": width,
-                    "height": height,
-                    "cl": confidence / 100.0
-                })
-        print(f"[INFO] Annotation disimpan ke database dengan image_path {db_image_path}")
+                """
+                )
+                conn.execute(
+                    query,
+                    {
+                        "box_id": box_id,
+                        "class_id": class_id,
+                        "image_path": db_image_path,
+                        "xcenter": x_center,
+                        "ycenter": y_center,
+                        "width": width,
+                        "height": height,
+                        "cl": confidence / 100.0,
+                    },
+                )
+        print(
+            f"[INFO] Annotation disimpan ke database dengan image_path {db_image_path}"
+        )
+
 
 if __name__ == "__main__":
     try:
@@ -461,6 +474,7 @@ if __name__ == "__main__":
         sys.exit(app.exec())
     except Exception as e:
         import traceback
+
         print("=== ERROR SAAT STARTUP ===")
         print(e)
         traceback.print_exc()
