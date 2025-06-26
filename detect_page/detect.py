@@ -35,9 +35,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[INFO] Using device: {device}")
 
 # Load the YOLO model using os.path for portability
-MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "weights", "weight-merged.pt"
-)
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "weights", "anomaly.pt")
 model = YOLO(MODEL_PATH).to(device)
 
 # Inisialisasi database
