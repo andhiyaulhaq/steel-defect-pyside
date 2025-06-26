@@ -17,7 +17,9 @@ from ultralytics import YOLO
 
 # Load YOLO model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = YOLO("../weights/weight-merged.pt").to(device)
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "weights", "anomaly.pt")
+model = YOLO(MODEL_PATH).to(device)
 
 
 class ImageAnnotator(QWidget):
