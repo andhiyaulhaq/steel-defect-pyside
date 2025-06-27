@@ -121,6 +121,9 @@ class VideoDetectionWidget(QMainWindow):
         self.defect_first_seen_time = None
         self.defect_first_seen_x0 = None
 
+        self.fps_log_path = None
+        self.annotation_csv_path = None
+
     def open_and_detect_video(self):
         """Open a video file and start processing it."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -153,6 +156,14 @@ class VideoDetectionWidget(QMainWindow):
             with open(self.fps_log_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(["time", "fps", "status"])  # Add status column
+            # -------------------------------------------------------
+
+            # --- Create annotation CSV path for this video ---
+            detect_output_dir = "detect_output"
+            os.makedirs(detect_output_dir, exist_ok=True)
+            self.annotation_csv_path = os.path.join(
+                detect_output_dir, f"{base_name}_{timestamp}_annotations.csv"
+            )
             # -------------------------------------------------------
 
     def process_video(self):
@@ -424,18 +435,15 @@ class VideoDetectionWidget(QMainWindow):
         cv2.imwrite(image_path, frame)
         print(f"[INFO] Screenshot saved as {image_path}")
 
-        # Save annotation to CSV in detect_output folder
-        detect_output_dir = "detect_output"
-        os.makedirs(detect_output_dir, exist_ok=True)
-        video_base = (
-            getattr(self, "fps_log_path", f"video_{timestamp}").split("_")[2]
-            if hasattr(self, "fps_log_path")
-            else timestamp
-        )
-        # Add timestamp to CSV filename
-        csv_filename = os.path.join(
-            detect_output_dir, f"{video_base}_{timestamp}_annotations.csv"
-        )
+        # Use the annotation CSV path set at video start
+        csv_filename = getattr(self, "annotation_csv_path", None)
+        if not csv_filename:
+            # fallback for safety
+            detect_output_dir = "detect_output"
+            os.makedirs(detect_output_dir, exist_ok=True)
+            csv_filename = os.path.join(
+                detect_output_dir, f"screenshot_{timestamp}_annotations.csv"
+            )
 
         # FIX: Define frame_yolo before using it
         frame_yolo = cv2.resize(frame, (640, 640))
