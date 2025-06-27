@@ -7,7 +7,8 @@ import time
 import cv2
 import torch
 import ulid
-from dotenv import load_dotenv
+
+# from dotenv import load_dotenv
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 # Tambahan untuk database
-from sqlalchemy import create_engine, text
+# from sqlalchemy import create_engine
 from ultralytics import YOLO
 
 from detect_page.ui_detect import Ui_detectWidget
@@ -35,15 +36,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"[INFO] Using device: {device}")
 
 # Load the YOLO model using os.path for portability
-MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "weights", "yolo11n-anomaly.pt"
+ANOMALY_MODEL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "weights", "yolo11s-anomaly.pt"
 )
-model = YOLO(MODEL_PATH).to(device)
+DEFECT_MODEL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "weights", "yolo11s-defect.pt"
+)
+anomaly_model = YOLO(ANOMALY_MODEL_PATH).to(device)
+defect_model = YOLO(DEFECT_MODEL_PATH).to(device)
 
 # Inisialisasi database
-load_dotenv()
-DATABASE_URL = os.getenv("DB_URL")
-engine = create_engine(DATABASE_URL)
+# load_dotenv()
+# DATABASE_URL = os.getenv("DB_URL")
+# engine = create_engine(DATABASE_URL)
 
 
 class VideoDetectionWidget(QMainWindow):
@@ -143,11 +148,11 @@ class VideoDetectionWidget(QMainWindow):
             timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             base_name = os.path.splitext(os.path.basename(file_path))[0]
             self.fps_log_path = os.path.join(
-                history_dir, f"fps_history_{base_name}_{timestamp}.csv"
+                history_dir, f"{base_name}_{timestamp}.csv"
             )
             with open(self.fps_log_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["time", "fps"])
+                writer.writerow(["time", "fps", "status"])  # Add status column
             # -------------------------------------------------------
 
     def process_video(self):
@@ -188,7 +193,27 @@ class VideoDetectionWidget(QMainWindow):
             return
 
         frame_yolo = cv2.resize(frame, (640, 640))
-        results = model.predict(frame_yolo)
+        results = anomaly_model.predict(frame_yolo)
+
+        # Extract detection_data from results
+        detection_data = []
+        if results and hasattr(results[0], "boxes"):
+            for box in results[0].boxes:
+                x0, y0, x1, y1 = map(int, box.xyxy[0].tolist())
+                class_id = int(box.cls[0])
+                class_name = anomaly_model.names[class_id]
+                confidence = float(box.conf[0]) * 100
+                detection_data.append(
+                    {
+                        "x0": x0,
+                        "y0": y0,
+                        "x1": x1,
+                        "y1": y1,
+                        "class_id": class_id,
+                        "class": class_name,
+                        "confidence": confidence,
+                    }
+                )
 
         frame_display = cv2.resize(
             frame,
@@ -202,6 +227,26 @@ class VideoDetectionWidget(QMainWindow):
 
         # Add this line to keep the clean frame for screenshot
         frame_display_clean = frame_display.copy()
+
+        # Draw bounding boxes for anomaly detections on frame_display (for UI only)
+        for det in detection_data:
+            x0 = int(det["x0"] * scale_x)
+            y0 = int(det["y0"] * scale_y)
+            x1 = int(det["x1"] * scale_x)
+            y1 = int(det["y1"] * scale_y)
+            color = (0, 255, 0)  # Green for anomaly
+            cv2.rectangle(frame_display, (x0, y0), (x1, y1), color, 2)
+            label = f"{det['class']} {det['confidence']:.1f}%"
+            cv2.putText(
+                frame_display,
+                label,
+                (x0, max(y0 - 10, 0)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
+                2,
+                cv2.LINE_AA,
+            )
 
         # Extract speed information from the first result
         if results and hasattr(results[0], "speed"):
@@ -217,65 +262,12 @@ class VideoDetectionWidget(QMainWindow):
             self.ui.fps_label.setText("FPS: N/A")
             fps = 0
 
-        # --- Modified block to log FPS history ---
-        now_float = time.time()
-        with open(self.fps_log_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([now_float, f"{fps:.2f}"])
-        # --- End of modified FPS logging block ---
-
-        detection_data = []
-        for result in results:
-            for box in result.boxes:
-                x0, y0, x1, y1 = map(int, box.xyxy[0].tolist())
-                class_id = int(box.cls[0])
-                class_name = model.names[class_id]
-                confidence = float(box.conf[0]) * 100
-
-                x0_display = int(x0 * scale_x)
-                y0_display = int(y0 * scale_y)
-                x1_display = int(x1 * scale_x)
-                y1_display = int(y1 * scale_y)
-
-                cv2.rectangle(
-                    frame_display,
-                    (x0_display, y0_display),
-                    (x1_display, y1_display),
-                    (0, 255, 0),
-                    2,
-                )
-                label_text = f"{class_name} {confidence:.1f}%"
-                cv2.putText(
-                    frame_display,
-                    label_text,
-                    (x0_display, y0_display - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (255, 0, 0),
-                    1,
-                )
-
-                detection_data.append(
-                    {
-                        "class_id": class_id,  # tambahkan ini
-                        "class": class_name,
-                        "confidence": confidence,
-                        "x0": x0,
-                        "y0": y0,
-                        "x1": x1,
-                        "y1": y1,
-                    }
-                )
-
-        self.last_frame_display = frame_display.copy()
-        self.last_detections = detection_data.copy()
-
-        self.update_detection_table(detection_data)
+        screenshot_taken = False  # Add this flag
 
         # Screenshot logic with custom delay
         img_w = self.ui.detection_image_label.width()
         center_x = img_w // 2
-        center_threshold = img_w * 0.05  # 5% of width
+        center_threshold = img_w * 0.1  # 5% of width
 
         defect = min(detection_data, key=lambda d: d["x0"]) if detection_data else None
 
@@ -283,12 +275,19 @@ class VideoDetectionWidget(QMainWindow):
         if self.capture_state == "wait_defect_center":
             if defect is not None:
                 x_center = int((defect["x0"] + defect["x1"]) / 2 * scale_x)
+                # Shift the center to the left by center_threshold
+                shifted_center_x = center_x - center_threshold
                 if self.defect_first_seen_time is None:
                     self.defect_first_seen_time = now
-                if abs(x_center - center_x) < center_threshold:
+                if abs(x_center - shifted_center_x) < center_threshold:
                     time_to_center = now - self.defect_first_seen_time
                     delay_duration = 2 * time_to_center
-                    self.save_screenshot(frame_display_clean, detection_data)
+                    self.save_screenshot(
+                        frame_display_clean,
+                        detection_data,
+                        anomaly_total_time=total_time,
+                    )
+                    screenshot_taken = True  # Set flag to True
                     self.capture_delay_until = now + delay_duration
                     self.capture_state = "wait_delay"
                     self.defect_first_seen_time = None
@@ -299,9 +298,24 @@ class VideoDetectionWidget(QMainWindow):
             if now >= self.capture_delay_until:
                 if defect:
                     self.save_screenshot(frame_display_clean, detection_data)
+                    screenshot_taken = True  # Set flag to True
                     self.capture_state = "wait_defect_center"
                 else:
                     self.capture_state = "wait_defect_center"
+
+        self.last_frame_display = frame_display.copy()
+        self.last_detections = detection_data.copy()
+
+        self.update_detection_table(detection_data)
+
+        # --- Modified block to log FPS history ---
+        now_float = time.time()
+        with open(self.fps_log_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [now_float, f"{fps:.2f}", "yes" if screenshot_taken else "no"]
+            )
+        # --- End of modified FPS logging block ---
 
         # Display frame
         frame_rgb = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
@@ -376,6 +390,12 @@ class VideoDetectionWidget(QMainWindow):
         self.ui.duration_label.setText("Video Stopped")
         self.ui.pause_button.setText("Pause")
 
+        # --- Reset state to default values ---
+        self.capture_state = "wait_defect_center"
+        self.capture_delay_until = 0
+        self.defect_first_seen_time = None
+        self.defect_first_seen_x0 = None
+
     def pause_video(self):
         """Pause or resume the video playback."""
         if self.is_playing:
@@ -392,8 +412,8 @@ class VideoDetectionWidget(QMainWindow):
                 )
                 self.timer.start(max(1, int(self.frame_duration * 1000)))
 
-    def save_screenshot(self, frame, detections):
-        """Save the current frame (without bounding boxes) and its annotation, and insert to DB."""
+    def save_screenshot(self, frame, detections, anomaly_total_time=None):
+        """Save the current frame (without bounding boxes) and its annotation to a CSV file."""
         screenshot_dir = "screenshots"
         os.makedirs(screenshot_dir, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -404,59 +424,110 @@ class VideoDetectionWidget(QMainWindow):
         cv2.imwrite(image_path, frame)
         print(f"[INFO] Screenshot saved as {image_path}")
 
-        # Ubah image_path untuk DB
-        db_image_path = (
-            f"/steel-defect-pyside/screenshots/{os.path.basename(image_path)}"
+        # Save annotation to CSV in detect_output folder
+        detect_output_dir = "detect_output"
+        os.makedirs(detect_output_dir, exist_ok=True)
+        video_base = (
+            getattr(self, "fps_log_path", f"video_{timestamp}").split("_")[2]
+            if hasattr(self, "fps_log_path")
+            else timestamp
+        )
+        # Add timestamp to CSV filename
+        csv_filename = os.path.join(
+            detect_output_dir, f"{video_base}_{timestamp}_annotations.csv"
         )
 
-        # Simpan langsung ke database tanpa membuat file .txt
-        with engine.begin() as conn:
-            for det in detections:
-                class_id = det["class_id"]
-                class_name = det["class"]
-                confidence = det["confidence"]
-                x_center = (det["x0"] + det["x1"]) / 2 / 640
-                y_center = (det["y0"] + det["y1"]) / 2 / 640
-                width = (det["x1"] - det["x0"]) / 640
-                height = (det["y1"] - det["y0"]) / 640
+        # FIX: Define frame_yolo before using it
+        frame_yolo = cv2.resize(frame, (640, 640))
 
-                # Tentukan tabel tujuan
-                if class_name.lower() == "dents":
-                    class_name = "Dent"
-                    table = "defect"
-                elif class_name.lower() == "anomaly":
-                    table = "anomaly"
-                else:
-                    continue  # skip jika bukan defect/anomaly
+        # Run defect model on the screenshot frame (resize to 640x640 for YOLO)
+        start_defect = time.time()
+        defect_results = defect_model.predict(frame_yolo)
+        end_defect = time.time()
+        defect_time = (end_defect - start_defect) * 1000  # ms
 
-                # Generate ULID untuk primary key
-                box_id = str(ulid.new())
+        # Calculate combined FPS if anomaly_total_time is provided
+        if anomaly_total_time is not None:
+            combined_total_time = anomaly_total_time + defect_time
+            combined_fps = (
+                1000.0 / combined_total_time if combined_total_time > 0 else 0
+            )
+            self.ui.fps_label.setText(f"Combined FPS: {combined_fps:.2f}")
+            self.ui.processing_time_label.setText(
+                f"Combined Time: {combined_total_time:.1f} ms"
+            )
 
-                # Insert ke tabel
-                query = text(
-                    f"""
-                    INSERT INTO {table}
-                    ({table}_id, class_id, image_path, xcenter, ycenter, width, height, cl)
-                    VALUES
-                    (:box_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl)
-                """
+        # Prepare combined detections: anomaly (from argument) + defect (from model)
+        combined_detections = []
+
+        # Add anomaly detections (from argument)
+        for det in detections:
+            class_id = det["class_id"]
+            class_name = det["class"]
+            confidence = det["confidence"]
+            x_center = (det["x0"] + det["x1"]) / 2 / 640
+            y_center = (det["y0"] + det["y1"]) / 2 / 640
+            width = (det["x1"] - det["x0"]) / 640
+            height = (det["y1"] - det["y0"]) / 640
+            combined_detections.append(
+                [
+                    image_path,
+                    class_id,
+                    class_name,
+                    confidence,
+                    x_center,
+                    y_center,
+                    width,
+                    height,
+                ]
+            )
+
+        # Add defect detections (from model)
+        for result in defect_results:
+            for box in result.boxes:
+                x0, y0, x1, y1 = map(int, box.xyxy[0].tolist())
+                class_id = int(box.cls[0]) + 1  # Shift defect class_id by 1
+                class_name = defect_model.names[
+                    class_id - 1
+                ]  # Use original index for name
+                confidence = float(box.conf[0]) * 100
+                x_center = (x0 + x1) / 2 / 640
+                y_center = (y0 + y1) / 2 / 640
+                width = (x1 - x0) / 640
+                height = (y1 - y0) / 640
+                combined_detections.append(
+                    [
+                        image_path,
+                        class_id,
+                        class_name,
+                        confidence,
+                        x_center,
+                        y_center,
+                        width,
+                        height,
+                    ]
                 )
-                conn.execute(
-                    query,
-                    {
-                        "box_id": box_id,
-                        "class_id": class_id,
-                        "image_path": db_image_path,
-                        "xcenter": x_center,
-                        "ycenter": y_center,
-                        "width": width,
-                        "height": height,
-                        "cl": confidence / 100.0,
-                    },
+
+        # Write header if file does not exist
+        write_header = not os.path.exists(csv_filename)
+        with open(csv_filename, "a", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            if write_header:
+                writer.writerow(
+                    [
+                        "image_path",
+                        "class_id",
+                        "class",
+                        "confidence",
+                        "x_center",
+                        "y_center",
+                        "width",
+                        "height",
+                    ]
                 )
-        print(
-            f"[INFO] Annotation disimpan ke database dengan image_path {db_image_path}"
-        )
+            for row in combined_detections:
+                writer.writerow(row)
+        print(f"[INFO] Annotation saved to {csv_filename}")
 
 
 if __name__ == "__main__":
