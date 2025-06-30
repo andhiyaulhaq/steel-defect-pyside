@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSlider,  # Tambahkan ini
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,6 +27,8 @@ class Ui_detectWidget(object):
         self.left_panel_layout = None
         self.horizontal_frame = None
         self.button_layout = None
+        self.confidence_slider = None
+        self.confidence_label = None
 
         self.fixed_width_no = 40
         self.fixed_width_box_id = 220
@@ -106,6 +109,17 @@ class Ui_detectWidget(object):
         self.table_widget = QTableWidget(detectWidget)
         self.table_widget.setObjectName("tableWidget")
 
+        # Tambahkan slider confidence
+        self.confidence_label = QLabel(detectWidget)
+        self.confidence_label.setObjectName("confidenceLabel")
+        self.confidence_slider = QSlider(Qt.Horizontal, detectWidget)
+        self.confidence_slider.setObjectName("confidenceSlider")
+        self.confidence_slider.setMinimum(0)
+        self.confidence_slider.setMaximum(100)
+        self.confidence_slider.setValue(30)  # Default 30%
+        self.confidence_slider.setTickInterval(5)
+        self.confidence_slider.setTickPosition(QSlider.TicksBelow)
+
     def _configure_widgets(self):
         """Configures widget properties."""
         # Configure Image Label
@@ -158,6 +172,8 @@ class Ui_detectWidget(object):
 
         # Add button frame to left panel
         self.left_panel_layout.addWidget(self.horizontal_frame, 0, Qt.AlignHCenter)
+        self.left_panel_layout.addWidget(self.confidence_label)
+        self.left_panel_layout.addWidget(self.confidence_slider)
 
         # Add main layouts to horizontal layout
         self.main_horizontal_layout.addLayout(self.left_panel_layout)
@@ -188,4 +204,7 @@ class Ui_detectWidget(object):
         )
         self.stop_button.setText(
             QCoreApplication.translate("detectWidget", "Stop", None)
+        )
+        self.confidence_label.setText(
+            QCoreApplication.translate("detectWidget", "Confidence: 30%", None)
         )
