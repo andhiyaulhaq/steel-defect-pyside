@@ -7,6 +7,8 @@ import time
 import cv2
 import torch
 import ulid
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
 
 # from dotenv import load_dotenv
 from PySide6.QtCore import Qt, QTimer
@@ -46,9 +48,15 @@ anomaly_model = YOLO(ANOMALY_MODEL_PATH).to(device)
 defect_model = YOLO(DEFECT_MODEL_PATH).to(device)
 
 # Inisialisasi database
-# load_dotenv()
-# DATABASE_URL = os.getenv("DB_URL")
-# engine = create_engine(DATABASE_URL)
+try:
+    load_dotenv()
+    DATABASE_URL = os.getenv("DB_URL")
+    if not DATABASE_URL:
+        raise ValueError("DB_URL tidak ditemukan di file .env")
+    engine = create_engine(DATABASE_URL)
+except Exception as e:
+    print(f"Error saat menginisialisasi database: {e}")
+    sys.exit()
 
 
 class VideoDetectionWidget(QMainWindow):
@@ -115,6 +123,12 @@ class VideoDetectionWidget(QMainWindow):
         self.ui.pause_button.clicked.connect(self.pause_video)
         self.ui.stop_button.clicked.connect(self.stop_video)
 
+        # Set confidence threshold default
+        self.confidence_threshold = 0.3
+
+        # Hubungkan slider ke fungsi update
+        self.ui.confidence_slider.valueChanged.connect(self.update_confidence_threshold)
+
         self.capture_state = "wait_defect_center"
         self.capture_delay_until = 0
         self.last_saved_fps = 0
@@ -123,6 +137,10 @@ class VideoDetectionWidget(QMainWindow):
 
         self.fps_log_path = None
         self.annotation_csv_path = None
+
+    def update_confidence_threshold(self, value):
+        self.confidence_threshold = value / 100.0
+        self.ui.confidence_label.setText(f"Confidence: {value}%")
 
     def open_and_detect_video(self):
         """Open a video file and start processing it."""
@@ -208,12 +226,16 @@ class VideoDetectionWidget(QMainWindow):
 
         # Extract detection_data from results
         detection_data = []
+        # Filter detection_data berdasarkan confidence threshold
         if results and hasattr(results[0], "boxes"):
             for box in results[0].boxes:
+                conf = float(box.conf[0])
+                if conf < self.confidence_threshold:
+                    continue
                 x0, y0, x1, y1 = map(int, box.xyxy[0].tolist())
                 class_id = int(box.cls[0])
                 class_name = anomaly_model.names[class_id]
-                confidence = float(box.conf[0]) * 100
+                confidence = conf * 100
                 detection_data.append(
                     {
                         "x0": x0,
@@ -536,6 +558,68 @@ class VideoDetectionWidget(QMainWindow):
             for row in combined_detections:
                 writer.writerow(row)
         print(f"[INFO] Annotation saved to {csv_filename}")
+
+        # --- Simpan ke database ---
+        all_detections = []
+        # Gabungkan anomaly dan defect
+        for det in detections:
+            all_detections.append({
+                "class_id": det["class_id"],
+                "class": det["class"],
+                "confidence": det["confidence"],
+                "x0": det["x0"],
+                "y0": det["y0"],
+                "x1": det["x1"],
+                "y1": det["y1"],
+            })
+        for result in defect_results:
+            for box in result.boxes:
+                x0, y0, x1, y1 = map(int, box.xyxy[0].tolist())
+                class_id = int(box.cls[0]) + 1
+                class_name = defect_model.names[class_id - 1]
+                confidence = float(box.conf[0]) * 100
+                all_detections.append({
+                    "class_id": class_id,
+                    "class": class_name,
+                    "confidence": confidence,
+                    "x0": x0,
+                    "y0": y0,
+                    "x1": x1,
+                    "y1": y1,
+                })
+
+        db_image_path = image_path  # atau sesuaikan path jika perlu
+
+        with engine.begin() as conn:
+            for det in all_detections:
+                class_name = det["class"]
+                if class_name.lower() == "anomaly":
+                    table = "anomaly"
+                else:
+                    table = "defect"
+                box_id = str(ulid.new())
+                x_center = (det["x0"] + det["x1"]) / 2 / 640
+                y_center = (det["y0"] + det["y1"]) / 2 / 640
+                width = (det["x1"] - det["x0"]) / 640
+                height = (det["y1"] - det["y0"]) / 640
+
+                query = text(f"""
+                    INSERT INTO {table} 
+                    ({table}_id, class_id, image_path, xcenter, ycenter, width, height, cl)
+                    VALUES
+                    (:box_id, :class_id, :image_path, :xcenter, :ycenter, :width, :height, :cl)
+                """)
+                conn.execute(query, {
+                    "box_id": box_id,
+                    "class_id": det["class_id"],
+                    "image_path": db_image_path,
+                    "xcenter": x_center,
+                    "ycenter": y_center,
+                    "width": width,
+                    "height": height,
+                    "cl": det["confidence"] / 100.0
+                })
+        print(f"[INFO] {len(all_detections)} deteksi disimpan ke database untuk gambar {db_image_path}")
 
 
 if __name__ == "__main__":
