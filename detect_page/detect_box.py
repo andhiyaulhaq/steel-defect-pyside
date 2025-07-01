@@ -128,6 +128,8 @@ class VideoDetectionWidget(QMainWindow):
         self.last_screenshot_time = None
         self.first_screenshot_taken = False
 
+        self.screenshot_taken = False  # <-- Add this line
+
     def select_video(self):
         """Open a file dialog to select a video file."""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -290,9 +292,8 @@ class VideoDetectionWidget(QMainWindow):
             self.ui.fps_label.setText("FPS: N/A")
             fps = 0
 
-        screenshot_taken = False  # Add this flag
-
         # --- Simplified screenshot logic based on time ---
+        self.screenshot_taken = False  # <-- Always reset at the start of each frame
         if not self.first_screenshot_taken:
             if elapsed_time >= 5.0:
                 self.save_screenshot(
@@ -300,17 +301,17 @@ class VideoDetectionWidget(QMainWindow):
                 )
                 self.last_screenshot_time = elapsed_time
                 self.first_screenshot_taken = True
-                screenshot_taken = True
+                self.screenshot_taken = True
         else:
             if (
                 self.last_screenshot_time is not None
-                and elapsed_time - self.last_screenshot_time >= 4.9347
+                and elapsed_time - self.last_screenshot_time >= 4.93452
             ):
                 self.save_screenshot(
                     frame_display_clean, detection_data, anomaly_total_time=total_time
                 )
                 self.last_screenshot_time = elapsed_time
-                screenshot_taken = True
+                self.screenshot_taken = True
         # --- End of simplified screenshot logic ---
 
         self.last_frame_display = frame_display.copy()
@@ -319,11 +320,10 @@ class VideoDetectionWidget(QMainWindow):
         self.update_detection_table(detection_data)
 
         # --- Modified block to log FPS history ---
-        now_float = time.time()
         with open(self.fps_log_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
-                [now_float, f"{fps:.2f}", "yes" if screenshot_taken else "no"]
+                [elapsed_time, f"{fps:.2f}", "yes" if self.screenshot_taken else "no"]
             )
         # --- End of modified FPS logging block ---
 
