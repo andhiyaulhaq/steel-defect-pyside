@@ -295,7 +295,7 @@ class VideoDetectionWidget(QMainWindow):
         # --- Simplified screenshot logic based on time ---
         self.screenshot_taken = False  # <-- Always reset at the start of each frame
         if not self.first_screenshot_taken:
-            if elapsed_time >= 5.0:
+            if elapsed_time >= 4.96:
                 self.save_screenshot(
                     frame_display_clean, detection_data, anomaly_total_time=total_time
                 )
@@ -305,7 +305,8 @@ class VideoDetectionWidget(QMainWindow):
         else:
             if (
                 self.last_screenshot_time is not None
-                and elapsed_time - self.last_screenshot_time >= 4.93452
+                and elapsed_time - self.last_screenshot_time >= 4.934523  # cpu1-n
+                # and elapsed_time - self.last_screenshot_time >= 4.875 # cpu1-s
             ):
                 self.save_screenshot(
                     frame_display_clean, detection_data, anomaly_total_time=total_time
@@ -334,6 +335,11 @@ class VideoDetectionWidget(QMainWindow):
         q_image = QImage(frame_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(q_image)
         self.ui.detection_image_label.setPixmap(pixmap)
+
+        # --- Add this block to update the label after the first frame is displayed ---
+        if self.ui.detection_image_label.text() == "Processing video...":
+            self.ui.detection_image_label.setText("")
+        # ------------------------------------------------------------------------------
 
         minutes = int(elapsed_time // 60)
         seconds = int(elapsed_time % 60)
