@@ -20,7 +20,7 @@ from ultralytics import YOLO
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "weights", "training2-100-defect.pt"
+    os.path.dirname(__file__), "..", "weights", "training2-300-defect.pt"
 )
 model = YOLO(MODEL_PATH).to(device)
 
@@ -54,6 +54,9 @@ class ImageAnnotator(QWidget):
 
         self.folder_path = folder_path
         self.images_info = []
+        self.image_label.setText(
+            "Processing the folder selected..."
+        )  # <-- Updated label here
         image_exts = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp")
         img_files = [
             os.path.join(folder_path, f)
@@ -126,13 +129,15 @@ class ImageAnnotator(QWidget):
         if not self.images_info:
             return
 
-        screenshot_dir = "screenshots"
+        # Use model file name (without extension) for folder and CSV
+        model_base = os.path.splitext(os.path.basename(MODEL_PATH))[0]
+        screenshot_dir = os.path.join("screenshots", model_base)
         os.makedirs(screenshot_dir, exist_ok=True)
         detect_output_dir = "detect_output"
         os.makedirs(detect_output_dir, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         csv_path = os.path.join(
-            detect_output_dir, f"folder_{timestamp}_annotations.csv"
+            detect_output_dir, f"{model_base}_{timestamp}_annotations.csv"
         )
         write_header = not os.path.exists(csv_path)
 
