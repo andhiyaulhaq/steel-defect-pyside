@@ -133,10 +133,10 @@ class Annotator(QObject):
 
     def _convert_to_db_path(self, file_path):
         import os
-        # Ganti path ini sesuai root project Anda
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        # Cari root project (folder yang berisi file utama, misal: detect.py, screenshots, dsb)
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         rel_path = os.path.relpath(file_path, start=project_root)
-        db_path = '/' + rel_path.replace('\\', '/')
+        db_path = rel_path
         print(f"DEBUG: file_path={file_path}")
         print(f"DEBUG: db_path={db_path}")
         return db_path
