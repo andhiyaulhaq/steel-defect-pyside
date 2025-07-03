@@ -18,7 +18,9 @@ from ultralytics import YOLO
 # Load YOLO model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "weights", "anomaly.pt")
+MODEL_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "weights", "training2-100-defect.pt"
+)
 model = YOLO(MODEL_PATH).to(device)
 
 

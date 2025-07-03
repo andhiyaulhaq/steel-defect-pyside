@@ -37,10 +37,10 @@ print(f"[INFO] Using device: {device}")
 
 # Load the YOLO model using os.path for portability
 ANOMALY_MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "weights", "yolo11n-anomaly.pt"
+    os.path.dirname(__file__), "..", "weights", "training1-anomaly.pt"
 )
 DEFECT_MODEL_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "weights", "yolo11n-defect.pt"
+    os.path.dirname(__file__), "..", "weights", "training1-defect.pt"
 )
 anomaly_model = YOLO(ANOMALY_MODEL_PATH).to(device)
 defect_model = YOLO(DEFECT_MODEL_PATH).to(device)
@@ -305,7 +305,7 @@ class VideoDetectionWidget(QMainWindow):
         else:
             if (
                 self.last_screenshot_time is not None
-                and elapsed_time - self.last_screenshot_time >= 4.934523  # cpu1-n
+                and elapsed_time - self.last_screenshot_time >= 4.9  # cpu1-n
                 # and elapsed_time - self.last_screenshot_time >= 4.875 # cpu1-s
             ):
                 self.save_screenshot(
