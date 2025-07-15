@@ -41,7 +41,7 @@ class BoxOperations:
                 )
 
                 box_id = str(ulid.new())
-                self.annotator.box_manager.boxes.append((box_coords, box_id, "Anomaly"))
+                self.annotator.box_manager.boxes.append((box_coords, box_id, "anomaly"))
                 self.annotator.box_manager.selected_box_index = len(self.annotator.box_manager.boxes) - 1
                 self.annotator.table_manager.update_table()
 
@@ -59,7 +59,7 @@ class BoxOperations:
                             # Ambil class_id untuk "Anomaly"
                             class_id_row = conn.execute(
                                 text("SELECT class_id FROM class WHERE class_name = :class_name"),
-                                {"class_name": "Anomaly"}
+                                {"class_name": "anomaly"}
                             ).fetchone()
                             if not class_id_row:
                                 show_warning_popup("Class 'Anomaly' not found in database!")

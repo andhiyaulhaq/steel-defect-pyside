@@ -431,7 +431,9 @@ class Annotator(QObject):
                         show_warning_popup(f"Class '{class_label}' not found in database!")
                         continue
                     class_id = class_id_row[0]
-
+                    if class_id == 0 :
+                        show_warning_popup(f"Class '{class_label}' has class_id 0, skipping save!")
+                        break
                     # Generate ULID baru untuk final_id
                     final_id = str(ulid.new())
 
@@ -456,31 +458,61 @@ class Annotator(QObject):
 
                     # Konversi ke normalized center
                     x_center, y_center, width, height = self.box_manager.convert_to_normalized_center(box, img_w, img_h)
-
-                    # Insert ke final_defect
-                    conn.execute(
-                        text("""
-                            INSERT INTO final_defect (
-                                final_id, image_path, source_id, class_id, training_id,
-                                confidence_level, xcenter, ycenter, width, height
-                            ) VALUES (
-                                :final_id, :image_path, :source_id, :class_id, :training_id,
-                                :confidence_level, :xcenter, :ycenter, :width, :height
-                            )
-                        """),
-                        {
-                            "final_id": final_id,
-                            "image_path": image_path_db,
-                            "source_id": source_id,
-                            "class_id": class_id,
-                            "training_id": None,
-                            "confidence_level": cl_value if cl_value is not None else 1.0,
-                            "xcenter": x_center,
-                            "ycenter": y_center,
-                            "width": width,
-                            "height": height
-                        }
-                    )
+                    
+                    image_path_check = conn.execute(
+                        text("SELECT image_path FROM final_defect WHERE image_path = :image_path"),
+                        {"image_path": image_path_db}
+                    ).fetchone()
+                    image_path_check = image_path_check[0] if image_path_check else None
+                    if image_path_check is not None:
+                        # Jika image_path sudah ada, update data final_defect
+                        conn.execute(
+                            text("""
+                                UPDATE final_defect
+                                SET class_id = :class_id,
+                                    training_id = NULL,
+                                    confidence_level = :confidence_level,
+                                    xcenter = :xcenter,
+                                    ycenter = :ycenter,
+                                    width = :width,
+                                    height = :height
+                                WHERE image_path = :image_path
+                            """),
+                            {
+                                "class_id": class_id,
+                                "confidence_level": cl_value if cl_value is not None else 1.0,
+                                "xcenter": x_center,
+                                "ycenter": y_center,
+                                "width": width,
+                                "height": height,
+                                "image_path": image_path_db
+                            }
+                        )
+                    else:
+                        # Jika image_path belum ada, insert data baru
+                        conn.execute(
+                            text("""
+                                INSERT INTO final_defect (
+                                    final_id, image_path, source_id, class_id, training_id,
+                                    confidence_level, xcenter, ycenter, width, height
+                                ) VALUES (
+                                    :final_id, :image_path, :source_id, :class_id, :training_id,
+                                    :confidence_level, :xcenter, :ycenter, :width, :height
+                                )
+                            """),
+                            {
+                                "final_id": final_id,
+                                "image_path": image_path_db,
+                                "source_id": source_id,
+                                "class_id": class_id,
+                                "training_id": None,
+                                "confidence_level": cl_value if cl_value is not None else 1.0,
+                                "xcenter": x_center,
+                                "ycenter": y_center,
+                                "width": width,
+                                "height": height
+                            }
+                        )
                 conn.commit()
             show_warning_popup("Final defect data saved successfully!")
         except Exception as e:
