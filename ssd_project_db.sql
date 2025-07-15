@@ -221,8 +221,14 @@ COPY public.anomaly (anomaly_id, image_path, class_id, cl, xcenter, ycenter, wid
 --
 
 COPY public.class (class_id, class_name, created_at) FROM stdin;
-0	Anomaly	2025-06-21 16:00:48.02312+07
-1	Dent	2025-06-21 13:00:15.548443+07
+0	anomaly	2025-06-21 16:00:48.02312+07
+1	dent	2025-06-21 13:00:15.548443+07
+2	macular	2025-06-30 08:53:52.607433+07
+4	punching	2025-06-30 08:54:21.175985+07
+3	pits	2025-06-30 08:54:49.862076+07
+5	oil spots	2025-06-30 08:55:22.458349+07
+6	linear	2025-06-30 08:55:46.073196+07
+7	inclusions	2025-06-30 08:56:03.125382+07
 \.
 
 
@@ -239,6 +245,7 @@ COPY public.defect (defect_id, image_path, class_id, cl, xcenter, ycenter, width
 --
 
 COPY public.final_defect (final_id, image_path, source_id, class_id, training_id, confidence_level, xcenter, ycenter, width, height) FROM stdin;
+01K06CJ8DHW4974ADP8AQPEEXV	screenshots\\20250715-131656.png	01K06C711B323K8XXJPMCKXD0A	7	\N	1	0.5615212527964206	0.3432741116751269	0.28187919463087246	0.6027918781725888
 \.
 
 
@@ -247,6 +254,8 @@ COPY public.final_defect (final_id, image_path, source_id, class_id, training_id
 --
 
 COPY public.operation (operation_id, start_time, end_time, user_id) FROM stdin;
+2	2025-06-21 11:51:27.431679+07	2025-06-21 11:51:27.431679+07	1
+3	2025-06-21 11:51:57.3216+07	2025-06-21 11:51:57.3216+07	1
 \.
 
 
@@ -263,7 +272,7 @@ COPY public.user_admin (user_id, username, password, role, created_at) FROM stdi
 -- Name: class_defect_class_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.class_defect_class_id_seq', 2, true);
+SELECT pg_catalog.setval('public.class_defect_class_id_seq', 7, true);
 
 
 --
